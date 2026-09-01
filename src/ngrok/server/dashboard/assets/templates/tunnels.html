@@ -1,0 +1,68 @@
+{{define "page_tunnels"}}<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>隧道列表 · ngrokd 管理后台</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+{{template "nav" .}}
+<main class="main">
+  <div class="page-head">
+    <h1>隧道列表</h1>
+    {{if .IsAdmin}}<button class="btn btn-primary" onclick="showCreateTunnel()">＋ 创建新隧道</button>{{end}}
+  </div>
+
+  <div class="toolbar">
+    <form method="get" action="/" class="search">
+      <input type="hidden" name="status" value="{{.Status}}">
+      <input name="q" value="{{.Q}}" placeholder="搜索隧道名称 / ID">
+      <button class="btn">搜索</button>
+    </form>
+    <div class="tabs">
+      <a href="/?q={{.Q}}" class="{{if eq .Status ""}}active{{end}}">全部</a>
+      <a href="/?status=online&amp;q={{.Q}}" class="{{if eq .Status "online"}}active{{end}}">在线</a>
+      <a href="/?status=offline&amp;q={{.Q}}" class="{{if eq .Status "offline"}}active{{end}}">离线</a>
+      <a href="/?status=locked&amp;q={{.Q}}" class="{{if eq .Status "locked"}}active{{end}}">锁定</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <table class="tbl">
+      <thead><tr>
+        <th>隧道名称</th><th>状态</th><th>协议</th><th>归属用户</th><th>创建时间</th><th>详情</th>
+      </tr></thead>
+      <tbody>
+      {{range .Tunnels}}
+        <tr>
+          <td><span class="dot {{if .Online}}on{{else}}off{{end}}"></span>
+              <a class="tname" href="/t/{{.ID}}">{{.Name}}</a>
+              {{if .Locked}}<span class="chip chip-lock">锁定</span>{{end}}</td>
+          <td>{{if .Online}}<span class="badge badge-on">在线</span>{{else}}<span class="badge badge-off">离线</span>{{end}}</td>
+          <td>{{range .Protos}}<span class="chip">{{.}}</span> {{end}}</td>
+          <td>{{.OwnerName}}</td>
+          <td class="muted">{{fmtTime .CreatedAt}}</td>
+          <td><a class="arrow" href="/t/{{.ID}}">›</a></td>
+        </tr>
+      {{else}}
+        <tr><td colspan="6" class="empty">暂无隧道{{if .IsAdmin}} — 点击右上角「创建新隧道」{{end}}</td></tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+</main>
+
+<div id="modal" class="modal hidden" onclick="if(event.target===this)hideModal()">
+  <div class="modal-box" id="modal-box"></div>
+</div>
+<div id="toast" class="toast hidden"></div>
+
+<script>
+window.PAGE = {
+  role: "{{if .IsAdmin}}admin{{else}}user{{end}}",
+  users: [{{range .Users}}{{if .}}{id:"{{.ID}}",name:"{{.Username}}"},{{end}}{{end}}]
+};
+</script>
+<script src="/static/app.js"></script>
+</body>
+</html>{{end}}

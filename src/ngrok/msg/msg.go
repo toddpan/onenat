@@ -20,6 +20,8 @@ func init() {
 	TypeMap["StartProxy"] = t((*StartProxy)(nil))
 	TypeMap["Ping"] = t((*Ping)(nil))
 	TypeMap["Pong"] = t((*Pong)(nil))
+	TypeMap["ConfigSync"] = t((*ConfigSync)(nil))
+	TypeMap["AckConfig"] = t((*AckConfig)(nil))
 }
 
 type Message interface{}
@@ -66,6 +68,10 @@ type ReqTunnel struct {
 	ReqId    string
 	Protocol string
 
+	// managed mode: stable name of the desired tunnel (dashboard mapping id);
+	// echoed back in NewTunnel.ReqId so both sides can correlate
+	Name string
+
 	// http only
 	Hostname  string
 	Subdomain string
@@ -84,6 +90,7 @@ type ReqTunnel struct {
 // chooses to open an http tunnel of the same name as well)
 type NewTunnel struct {
 	ReqId    string
+	Name     string // managed mode: mapping name from the requesting ReqTunnel
 	Url      string
 	Protocol string
 	Error    string
@@ -117,4 +124,45 @@ type Ping struct {
 // Sent by a client or server over the control channel to indicate
 // it received a Ping.
 type Pong struct {
+}
+
+// DesiredTunnel is one tunnel the server wants a managed client to keep
+// open. Name is the dashboard mapping id and is used as ReqId on the
+// corresponding ReqTunnel so messages correlate.
+type DesiredTunnel struct {
+	Name       string
+	Protocol   string // tcp | http | https
+	LocalAddr  string // "127.0.0.1:22"
+	RemotePort uint16 // tcp only; 0 = auto
+	Subdomain  string // http/https only
+	Hostname   string // http/https only
+	HttpAuth   string // http/https only
+}
+
+// ConfigSync is sent by the server to a managed client right after
+// authentication and after every dashboard-side configuration change.
+// Desired is the full set of tunnels that should exist; Active maps the
+// names of those currently open on the server to their public URLs. The
+// client rebuilds its routing table from Active and requests the missing
+// ones via ReqTunnel. The server performs deletions on its own side
+// before pushing, so any tunnel absent from Active is already closed.
+type ConfigSync struct {
+	Version int64
+	Desired []DesiredTunnel
+	Active  map[string]string // name -> public url
+}
+
+// AckTunnel reports the client-side state of one DesiredTunnel.
+type AckTunnel struct {
+	Name  string
+	URL   string // public url when established
+	Error string // last registration error, if any
+}
+
+// AckConfig is sent by the managed client back to the server after each
+// ConfigSync (and after subsequent NewTunnel messages) so the dashboard
+// can display per-mapping status.
+type AckConfig struct {
+	Version int64
+	Tunnels []AckTunnel
 }

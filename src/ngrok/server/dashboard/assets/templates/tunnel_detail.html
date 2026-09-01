@@ -1,0 +1,154 @@
+{{define "page_tunnel_detail"}}<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{.T.Name}} · 隧道详情 · ngrokd 管理后台</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+{{template "nav" .}}
+<main class="main">
+  <div class="page-head">
+    <div class="page-title">
+      <a class="arrow back" href="/">←</a>
+      <h1>隧道详情 <span class="muted">#{{.T.ID}}</span></h1>
+    </div>
+    {{if .IsAdmin}}
+    <div class="dropdown-wrap">
+      <button class="btn" onclick="toggleDropdown(event)">⚙ 编辑隧道 ▾</button>
+      <div class="dropdown hidden" id="tunnel-menu">
+        <a onclick="showMappingModal(null)">＋ 添加端口</a>
+        <a onclick="showConfig()">📄 查看配置文件</a>
+        <a onclick="repairTunnel()">🛠 修复隧道</a>
+        <a onclick="resetKey()">🔑 重置密钥</a>
+        <a onclick="toggleLock()">{{if .T.Locked}}🔓 解锁隧道{{else}}🔒 锁定隧道{{end}}</a>
+        <a class="danger" onclick="delTunnel()">🗑 删除隧道</a>
+      </div>
+    </div>
+    {{end}}
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <table class="kv">
+        <tr><th>隧道名称</th><td><b>{{.T.Name}}</b>
+              {{if .IsAdmin}}<a class="mini" onclick="editName()">✏ 改名</a>{{end}}</td></tr>
+        <tr><th>隧道状态</th><td>
+              {{if .T.Locked}}<span class="badge badge-lock">锁定</span>
+              {{else if .T.Online}}<span class="badge badge-on">在线</span>
+              {{else}}<span class="badge badge-off">离线</span>{{end}}</td></tr>
+        <tr><th>归属用户</th><td>{{.OwnerName}}</td></tr>
+        <tr><th>节点名称</th><td>{{.T.Node}}</td></tr>
+        <tr><th>客户端版本</th><td>{{if .T.Runtime.ClientVersion}}{{.T.Runtime.ClientVersion}} ({{.T.Runtime.ClientOS}}){{else}}—{{end}}</td></tr>
+        <tr><th>创建时间</th><td class="muted">{{fmtTime .T.CreatedAt}}</td></tr>
+        <tr><th>备注</th><td>{{.T.Note}}</td></tr>
+      </table>
+      <div class="kv-section">配置文件信息</div>
+      <div class="hint">
+        ⓘ 请注意，配置文件为敏感信息，请不要复制给其他人。
+        <a onclick="showConfig()">点我获取</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">端口映射</div>
+      <table class="tbl">
+        <thead><tr><th>本地服务</th><th>公网连接</th><th>备注</th><th>状态</th>{{if .IsAdmin}}<th>操作</th>{{end}}</tr></thead>
+        <tbody>
+        {{range .T.Mappings}}
+          <tr>
+            <td class="mono">{{.LocalIP}}:{{.LocalPort}}</td>
+            <td class="mono">{{if .PublicURL}}{{.PublicURL}}{{else}}—{{end}}</td>
+            <td>{{.Note}}</td>
+            <td>{{if .Error}}<span class="badge badge-err" title="{{.Error}}">错误</span>
+                {{else if .PublicURL}}<span class="badge badge-on">已开通</span>
+                {{else}}<span class="badge badge-off">等待客户端</span>{{end}}</td>
+            {{if $.IsAdmin}}<td>
+              <a class="mini" onclick="showMappingModal('{{.ID}}')">编辑</a>
+              <a class="mini danger" onclick="delMapping('{{.ID}}')">删除</a>
+            </td>{{end}}
+          </tr>
+        {{else}}
+          <tr><td colspan="5" class="empty">暂无端口映射{{if $.IsAdmin}} — 点击「添加端口」{{end}}</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+      {{if .IsAdmin}}<div class="card-foot"><button class="btn btn-sm" onclick="showMappingModal(null)">＋ 添加端口</button></div>{{end}}
+    </div>
+
+    <div class="card">
+      <div class="card-title">一键安装客户端</div>
+      <p class="muted small">在要安装客户端的内网机器上执行（脚本内置隧道 ID 与密钥，自动下载客户端、拉取配置并注册常驻服务）：</p>
+      <div class="cmd-row">
+        <input class="cmd" id="install-cmd" readonly value="{{.InstallCmd}}">
+        <button class="btn btn-primary btn-sm" onclick="copyInstallCmd('install-cmd')">复制</button>
+      </div>
+      <p class="muted small">Linux / macOS（需 curl 或 wget；linux 支持 x86_64/arm64/arm）</p>
+      <div class="cmd-row">
+        <input class="cmd" id="install-cmd-win" readonly value="{{.InstallCmdWin}}">
+        <button class="btn btn-primary btn-sm" onclick="copyInstallCmd('install-cmd-win')">复制</button>
+      </div>
+      <p class="muted small">Windows（复制到 cmd / PowerShell 执行；自动下载安装、当前用户开机自启，无需管理员）</p>
+    </div>
+
+    <div class="card">
+      <div class="card-title">近 7 天隧道流量消耗</div>
+      <div class="chart">
+        {{range .Weekly}}
+        <div class="chart-col">
+          <div class="chart-bar-wrap"><div class="chart-bar" style="height:{{if $.MaxWeekly}}{{printf "%d" (div64 .Bytes $.MaxWeekly 100)}}{{else}}0{{end}}%"></div></div>
+          <div class="chart-val">{{if .Bytes}}{{fmtBytes .Bytes}}{{else}}-{{end}}</div>
+          <div class="chart-day">{{printf "%.5s" .Day}}</div>
+        </div>
+        {{end}}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">最近客户端连接记录</div>
+      <table class="tbl">
+        <thead><tr><th>时间</th><th>来源地址</th><th>公网连接</th><th>入/出流量</th></tr></thead>
+        <tbody>
+        {{range .ConnRows}}
+          <tr>
+            <td class="muted">{{fmtTime .Time}}</td>
+            <td class="mono">{{.ClientAddr}}</td>
+            <td class="mono">{{.PublicURL}}</td>
+            <td class="mono">{{fmtBytes .BytesIn}} / {{fmtBytes .BytesOut}}</td>
+          </tr>
+        {{else}}
+          <tr><td colspan="4" class="empty">暂无连接记录</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <div class="card-title">隧道密钥</div>
+      <p class="muted small">客户端用它连接服务端（含在配置文件与安装命令中）。重置后旧密钥立即失效，需重新安装客户端。</p>
+      <div class="cmd-row">
+        <input class="cmd mono" id="tunnel-key" readonly value="{{.T.Key}}">
+        <button class="btn btn-sm" onclick="copyText(document.getElementById('tunnel-key').value)">复制</button>
+        {{if .IsAdmin}}<button class="btn btn-sm danger" onclick="resetKey()">重置</button>{{end}}
+      </div>
+    </div>
+  </div>
+</main>
+
+<div id="modal" class="modal hidden" onclick="if(event.target===this)hideModal()">
+  <div class="modal-box" id="modal-box"></div>
+</div>
+<div id="toast" class="toast hidden"></div>
+
+<script>
+window.PAGE = {
+  role: "{{if .IsAdmin}}admin{{else}}user{{end}}",
+  tunnelId: "{{.T.ID}}",
+  tunnelName: "{{.T.Name}}",
+  locked: {{if .T.Locked}}true{{else}}false{{end}},
+  mappings: {{toJSON .T.Mappings}}
+};
+</script>
+<script src="/static/app.js"></script>
+</body>
+</html>{{end}}
