@@ -1,0 +1,23 @@
+{{define "page_login"}}<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>登录 · ngrokd 管理后台</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="login-body">
+  <div class="login-card">
+    <div class="login-brand">● ngrokd <small>管理后台</small></div>
+    {{if .Error}}<div class="alert alert-err">{{.Error}}</div>{{end}}
+    <form method="post" action="/login">
+      <label class="field">用户名
+        <input name="username" autofocus required autocomplete="username">
+      </label>
+      <label class="field">密码
+        <input name="password" type="password" required autocomplete="current-password">
+      </label>
+      <button class="btn btn-primary btn-block" type="submit">登 录</button>
+    </form>
+  </div>
+</body>
+</html>{{end}}

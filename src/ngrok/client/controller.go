@@ -9,6 +9,7 @@ import (
 	"ngrok/proto"
 	"ngrok/util"
 	"sync"
+	"time"
 )
 
 type command interface{}
@@ -190,6 +191,7 @@ func (ctl *Controller) Run(config *Configuration) {
 	defer ctl.updates.UnReg(updates)
 
 	done := make(chan int)
+	var lastCardAt time.Time
 	for {
 		select {
 		case obj := <-ctl.cmds:
@@ -208,6 +210,14 @@ func (ctl *Controller) Run(config *Configuration) {
 
 		case obj := <-updates:
 			state = obj.(mvc.State)
+			// agent mode: announce the connection card whenever a fresh
+			// one is published (initial login and every code rotation)
+			if model := ctl.GetModel(); model.GetConnStatus() == mvc.ConnOnline {
+				if card := model.GetCard(); card != nil && !card.UpdatedAt.Equal(lastCardAt) {
+					lastCardAt = card.UpdatedAt
+					fmt.Println(FormatCard(card))
+				}
+			}
 
 		case ctl.state <- state:
 		case <-done:

@@ -8,6 +8,7 @@ import (
 	"ngrok/conn"
 	"ngrok/log"
 	"ngrok/msg"
+	"ngrok/server/dashboard"
 	"ngrok/util"
 	"os"
 	"strconv"
@@ -30,6 +31,10 @@ type Tunnel struct {
 	// request that opened the tunnel
 	req *msg.ReqTunnel
 
+	// dashboard-managed mapping id (msg.ReqTunnel.Name); empty for
+	// classic tunnels
+	dashMappingID string
+
 	// time when the tunnel was opened
 	start time.Time
 
@@ -47,6 +52,24 @@ type Tunnel struct {
 
 	// closing
 	closing int32
+}
+
+// desiredBy reports whether this tunnel still matches the desired mapping
+// of the same name. Only server-visible parameters are compared: the local
+// address lives on the client and is synced via ConfigSync without a rebind.
+func (t *Tunnel) desiredBy(desired map[string]msg.DesiredTunnel) bool {
+	if t.dashMappingID == "" {
+		return true // classic tunnel: never touched by dashboard reconciliation
+	}
+	d, ok := desired[t.dashMappingID]
+	if !ok {
+		return false
+	}
+	return d.Protocol == t.req.Protocol &&
+		d.RemotePort == t.req.RemotePort &&
+		d.Subdomain == t.req.Subdomain &&
+		d.Hostname == t.req.Hostname &&
+		d.HttpAuth == t.req.HttpAuth
 }
 
 // Common functionality for registering virtually hosted protocols
@@ -96,10 +119,11 @@ func registerVhost(t *Tunnel, protocol string, servingPort int) (err error) {
 // on a control channel
 func NewTunnel(m *msg.ReqTunnel, ctl *Control) (t *Tunnel, err error) {
 	t = &Tunnel{
-		req:    m,
-		start:  time.Now(),
-		ctl:    ctl,
-		Logger: log.NewPrefixLogger(),
+		req:           m,
+		dashMappingID: m.Name,
+		start:         time.Now(),
+		ctl:           ctl,
+		Logger:        log.NewPrefixLogger(),
 	}
 
 	proto := t.req.Protocol
@@ -296,4 +320,17 @@ func (t *Tunnel) HandlePublicConnection(publicConn conn.Conn) {
 	// join the public and proxy connections
 	bytesIn, bytesOut := conn.Join(publicConn, proxyConn)
 	metrics.CloseConnection(t, publicConn, startTime, bytesIn, bytesOut)
+
+	// dashboard bookkeeping: recent connections + daily traffic
+	if dash != nil && t.ctl.dashTunnelID != "" {
+		dash.RecordConn(t.ctl.dashTunnelID, dashboard.ConnRecord{
+			Time:       time.Now(),
+			ClientAddr: publicConn.RemoteAddr().String(),
+			MappingID:  t.dashMappingID,
+			PublicURL:  t.url,
+			BytesIn:    bytesIn,
+			BytesOut:   bytesOut,
+			DurationMs: time.Since(startTime).Milliseconds(),
+		})
+	}
 }

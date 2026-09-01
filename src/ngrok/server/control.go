@@ -1,14 +1,17 @@
 package server
 
 import (
+	"crypto/subtle"
 	"fmt"
 	"io"
 	"ngrok/conn"
 	"ngrok/msg"
+	"ngrok/server/dashboard"
 	"ngrok/util"
 	"ngrok/version"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -41,6 +44,15 @@ type Control struct {
 	// all of the tunnels this control connection handles
 	tunnels []*Tunnel
 
+	// guards tunnels mutations: the manager goroutine registers tunnels
+	// while the dashboard goroutine reconciles them via ApplyDesired
+	tunnelsMu sync.Mutex
+
+	// dashboard-managed tunnel id; empty for classic/agent clients.
+	// Managed clients authenticate with the tunnel key and always use the
+	// stable ClientId "tun-<tunnelId>".
+	dashTunnelID string
+
 	// proxy connections
 	proxies chan conn.Conn
 
@@ -58,6 +70,21 @@ type Control struct {
 
 	// synchronizer for controller shutdown of entire Control
 	shutdown *util.Shutdown
+}
+
+// tokenAllowed reports whether the presented token matches any of the
+// comma-separated required tokens (constant-time per candidate).
+func tokenAllowed(required, presented string) bool {
+	for _, tok := range strings.Split(required, ",") {
+		tok = strings.TrimSpace(tok)
+		if tok == "" {
+			continue
+		}
+		if subtle.ConstantTimeCompare([]byte(tok), []byte(presented)) == 1 {
+			return true
+		}
+	}
+	return false
 }
 
 func NewControl(ctlConn conn.Conn, authMsg *msg.Auth) {
@@ -92,6 +119,49 @@ func NewControl(ctlConn conn.Conn, authMsg *msg.Auth) {
 		}
 	}
 
+	// enforce the server's required auth token(s), if configured.
+	// -authToken accepts a comma-separated list (zero-config agent clients
+	// each present their stable machine key). An empty presented token
+	// fails every constant-time comparison on purpose.
+	//
+	// Additionally, dashboard-managed tunnels authenticate with their
+	// per-tunnel key regardless of -authToken.
+	var managedTun *dashboard.Tunnel
+	if dash != nil {
+		if t, ok := dash.Store().AuthenticateKey(authMsg.User); ok {
+			managedTun = t
+		}
+	}
+	if opts.authToken != "" {
+		if !tokenAllowed(opts.authToken, authMsg.User) && managedTun == nil {
+			c.conn.Error("Authentication failed: invalid auth token")
+			failAuth(fmt.Errorf("Invalid authentication token"))
+			return
+		}
+	}
+
+	// bind the control to the managed tunnel: stable ClientId gives us
+	// session replacement on reconnect + TCP port affinity from the cache
+	if managedTun != nil {
+		if managedTun.Locked {
+			c.conn.Error("Authentication failed: tunnel %s is locked", managedTun.ID)
+			failAuth(fmt.Errorf("Tunnel is locked"))
+			return
+		}
+		c.dashTunnelID = managedTun.ID
+		c.id = managedClientId(managedTun.ID)
+		if dash != nil {
+			dash.TouchClient(managedTun.ID, authMsg.MmVersion, authMsg.OS)
+		}
+	} else if strings.HasPrefix(c.id, "tun-") {
+		// A client claiming a managed slot ("tun-<id>") must present that
+		// tunnel's CURRENT key. Otherwise a stale-key client could resurrect
+		// the identity of a reset/deleted tunnel after a reconnect.
+		c.conn.Error("Authentication failed: invalid token for managed client %s", c.id)
+		failAuth(fmt.Errorf("Invalid authentication token"))
+		return
+	}
+
 	// set logging prefix
 	ctlConn.SetType("ctl")
 	ctlConn.AddLogPrefix(c.id)
@@ -119,6 +189,12 @@ func NewControl(ctlConn conn.Conn, authMsg *msg.Auth) {
 	// As a performance optimization, ask for a proxy connection up front
 	c.out <- &msg.ReqProxy{}
 
+	// managed client: push the desired tunnel configuration right away so
+	// the client requests its tunnels from the dashboard's source of truth
+	if c.dashTunnelID != "" && dash != nil {
+		dash.PushConfig(c.dashTunnelID)
+	}
+
 	// manage the connection
 	go c.manager()
 	go c.reader()
@@ -134,8 +210,11 @@ func (c *Control) registerTunnel(rawTunnelReq *msg.ReqTunnel) {
 		c.conn.Debug("Registering new tunnel")
 		t, err := NewTunnel(&tunnelReq, c)
 		if err != nil {
-			c.out <- &msg.NewTunnel{Error: err.Error()}
-			if len(c.tunnels) == 0 {
+			c.out <- &msg.NewTunnel{Error: err.Error(), ReqId: rawTunnelReq.ReqId, Name: rawTunnelReq.Name}
+			// classic clients die when their only tunnel fails; managed
+			// clients stay connected so the dashboard can show the error
+			// and keep serving the other mappings
+			if c.dashTunnelID == "" && len(c.tunnels) == 0 {
 				c.shutdown.Begin()
 			}
 
@@ -144,13 +223,16 @@ func (c *Control) registerTunnel(rawTunnelReq *msg.ReqTunnel) {
 		}
 
 		// add it to the list of tunnels
+		c.tunnelsMu.Lock()
 		c.tunnels = append(c.tunnels, t)
+		c.tunnelsMu.Unlock()
 
 		// acknowledge success
 		c.out <- &msg.NewTunnel{
 			Url:      t.url,
 			Protocol: proto,
 			ReqId:    rawTunnelReq.ReqId,
+			Name:     rawTunnelReq.Name,
 		}
 
 		rawTunnelReq.Hostname = strings.Replace(t.url, proto+"://", "", 1)
@@ -192,6 +274,12 @@ func (c *Control) manager() {
 			switch m := mRaw.(type) {
 			case *msg.ReqTunnel:
 				c.registerTunnel(m)
+
+			case *msg.AckConfig:
+				// managed client reporting per-mapping status
+				if c.dashTunnelID != "" && dash != nil {
+					dash.ReportAck(c.dashTunnelID, m)
+				}
 
 			case *msg.Ping:
 				c.lastPing = time.Now()

@@ -9,6 +9,7 @@ import (
 	"net"
 	"ngrok/client/mvc"
 	"ngrok/conn"
+	"ngrok/gate"
 	"ngrok/log"
 	"ngrok/msg"
 	"ngrok/proto"
@@ -52,6 +53,27 @@ type ClientModel struct {
 	tlsConfig     *tls.Config
 	tunnelConfig  map[string]*TunnelConfiguration
 	configPath    string
+
+	// AI remote-agent support
+	config      *Configuration
+	gate        *gate.Gate
+	card        *ConnectionCard
+	tunnelMetas map[string]tunnelMeta // publicUrl -> proto/localaddr for manual
+
+	// dashboard-managed mode state (only touched by the control-loop
+	// goroutine, so no locking needed)
+	ctlConn        conn.Conn
+	managedVersion int64
+	managedDesired map[string]*msg.DesiredTunnel
+	managedActive  map[string]string // mapping name -> public url
+	managedErrors  map[string]string // mapping name -> last registration error
+}
+
+// tunnelMeta records what a public URL is for, so the agent manual can
+// describe each entrypoint (ssh vs web) after tunnels are established.
+type tunnelMeta struct {
+	ProtoName string
+	LocalAddr string
 }
 
 func newClientModel(config *Configuration, ctl mvc.Controller) *ClientModel {
@@ -99,6 +121,19 @@ func newClientModel(config *Configuration, ctl mvc.Controller) *ClientModel {
 
 		// config path
 		configPath: config.Path,
+
+		// full configuration (gate settings, manual options)
+		config: config,
+
+		// entrypoint metadata for the agent manual
+		tunnelMetas: make(map[string]tunnelMeta),
+	}
+
+	// dashboard-managed mode bookkeeping
+	if config.Managed {
+		m.managedDesired = make(map[string]*msg.DesiredTunnel)
+		m.managedActive = make(map[string]string)
+		m.managedErrors = make(map[string]string)
 	}
 
 	// configure TLS
@@ -146,6 +181,9 @@ func (c ClientModel) GetTunnels() []mvc.Tunnel {
 func (c ClientModel) GetConnStatus() mvc.ConnStatus     { return c.connStatus }
 func (c ClientModel) GetUpdateStatus() mvc.UpdateStatus { return c.updateStatus }
 
+// GetCard returns the latest agent connection card (nil outside agent mode).
+func (c ClientModel) GetCard() *ConnectionCard { return c.card }
+
 func (c ClientModel) GetConnectionMetrics() (metrics.Meter, metrics.Timer) {
 	return c.metrics.connMeter, c.metrics.connTimer
 }
@@ -178,6 +216,9 @@ func (c *ClientModel) PlayRequest(tunnel mvc.Tunnel, payload []byte) {
 }
 
 func (c *ClientModel) Shutdown() {
+	if c.gate != nil {
+		c.gate.Close()
+	}
 }
 
 func (c *ClientModel) update() {
@@ -231,6 +272,7 @@ func (c *ClientModel) control() {
 		panic(err)
 	}
 	defer ctlConn.Close()
+	c.ctlConn = ctlConn
 
 	// authenticate with the server
 	auth := &msg.Auth{
@@ -262,7 +304,9 @@ func (c *ClientModel) control() {
 	c.serverVersion = authResp.MmVersion
 	c.Info("Authenticated with server, client id: %v", c.id)
 	c.update()
-	if err = SaveAuthToken(c.configPath, c.authToken); err != nil {
+	// zero-config agent mode has no config file to persist the token into;
+	// the machine key file already holds it
+	if err = SaveAuthToken(c.configPath, c.authToken); err != nil && c.configPath != "" {
 		c.Error("Failed to save auth token: %v", err)
 	}
 
@@ -312,29 +356,220 @@ func (c *ClientModel) control() {
 		case *msg.Pong:
 			atomic.StoreInt64(&lastPong, time.Now().UnixNano())
 
+		case *msg.ConfigSync:
+			// dashboard-managed mode: rebuild towards the server's desired set
+			if c.config.Managed {
+				c.applyConfigSync(m, ctlConn)
+			}
+
 		case *msg.NewTunnel:
 			if m.Error != "" {
+				if c.config.Managed && m.Name != "" {
+					// keep the client alive; surface the error to the
+					// dashboard via the next ack
+					c.Error("Server failed to allocate tunnel %s: %s", m.Name, m.Error)
+					c.managedErrors[m.Name] = m.Error
+					delete(c.managedActive, m.Name)
+					c.sendManagedAck()
+					c.update()
+					continue
+				}
 				emsg := fmt.Sprintf("Server failed to allocate tunnel: %s", m.Error)
 				c.Error(emsg)
 				c.ctl.Shutdown(emsg)
 				continue
 			}
 
+			var localAddr string
+			if cfg := reqIdToTunnelConfig[m.ReqId]; cfg != nil {
+				localAddr = cfg.Protocols[m.Protocol]
+			} else if spec := c.managedDesired[m.Name]; spec != nil {
+				localAddr = spec.LocalAddr
+			}
+
 			tunnel := mvc.Tunnel{
 				PublicUrl: m.Url,
-				LocalAddr: reqIdToTunnelConfig[m.ReqId].Protocols[m.Protocol],
+				LocalAddr: localAddr,
 				Protocol:  c.protoMap[m.Protocol],
 			}
 
 			c.tunnels[tunnel.PublicUrl] = tunnel
+			if c.config.Managed && m.Name != "" {
+				c.managedActive[m.Name] = tunnel.PublicUrl
+				delete(c.managedErrors, m.Name)
+				c.Info("Managed mapping %s established at %v -> %s", m.Name, tunnel.PublicUrl, tunnel.LocalAddr)
+				c.sendManagedAck()
+			}
+			c.tunnelMetas[tunnel.PublicUrl] = tunnelMeta{ProtoName: m.Protocol, LocalAddr: tunnel.LocalAddr}
+			// advertise entrypoints under the host the client actually
+			// dialed (supports bare-IP servers); remember the mapping
+			displayUrl := tunnel.PublicUrl
+			if serverHost, _, serr := net.SplitHostPort(c.serverAddr); serr == nil && serverHost != "" {
+				if ip := net.ParseIP(serverHost); ip != nil {
+					displayUrl = RewriteURLHost(tunnel.PublicUrl, serverHost)
+				}
+			}
+			c.tunnelMetas[displayUrl] = c.tunnelMetas[tunnel.PublicUrl]
+			if displayUrl != tunnel.PublicUrl {
+				delete(c.tunnelMetas, tunnel.PublicUrl)
+			}
 			c.connStatus = mvc.ConnOnline
 			c.Info("Tunnel established at %v", tunnel.PublicUrl)
+
+			// agent mode: create the access gateway and generate the
+			// machine-readable remote access manual once ALL agent tunnels
+			// are up (ssh+web arrive as two NewTunnel messages)
+			if c.config.Gate == "plain" && strings.HasPrefix(m.Protocol, "tcp") {
+				if c.gate == nil {
+					if c.config.GateToken != "" {
+						c.gate = gate.NewFixed(c.config.GateToken)
+					} else {
+						c.gate = gate.New(c.config.GateTTL)
+						c.gate.OnRotate(c.onCodeRotate)
+					}
+				}
+			}
+			if c.isAgentMode() && c.tunnelMetasComplete() {
+				c.publishManual()
+			}
+
 			c.update()
 
 		default:
 			ctlConn.Warn("Ignoring unknown control message %v ", m)
 		}
 	}
+}
+
+// applyConfigSync rebuilds the client towards the server's desired tunnel
+// set: routing entries are rebuilt from Active (tunnels the server already
+// has open), missing ones are requested via ReqTunnel, and removals simply
+// drop out (the server closed its side before pushing).
+func (c *ClientModel) applyConfigSync(m *msg.ConfigSync, ctlConn conn.Conn) {
+	c.Info("Config sync v%d: %d desired, %d active", m.Version, len(m.Desired), len(m.Active))
+	c.managedVersion = m.Version
+
+	desired := make(map[string]*msg.DesiredTunnel, len(m.Desired))
+	for i := range m.Desired {
+		desired[m.Desired[i].Name] = &m.Desired[i]
+	}
+	c.managedDesired = desired
+
+	// rebuild the routing table (publicUrl -> local tunnel)
+	tunnels := make(map[string]mvc.Tunnel)
+	nextActive := make(map[string]string, len(m.Active))
+	for name, url := range m.Active {
+		spec := desired[name]
+		if spec == nil {
+			continue
+		}
+		p := c.protoMap[spec.Protocol]
+		if p == nil {
+			c.Error("Config sync: unsupported protocol %q for mapping %s", spec.Protocol, name)
+			c.managedErrors[name] = "unsupported protocol " + spec.Protocol
+			continue
+		}
+		tunnels[url] = mvc.Tunnel{
+			PublicUrl: url,
+			LocalAddr: spec.LocalAddr,
+			Protocol:  p,
+		}
+		nextActive[name] = url
+		delete(c.managedErrors, name)
+	}
+	c.tunnels = tunnels
+	c.managedActive = nextActive
+
+	// request every desired mapping the server does not have open yet
+	for name, spec := range desired {
+		if _, isActive := m.Active[name]; isActive {
+			continue
+		}
+		req := &msg.ReqTunnel{
+			ReqId:      name,
+			Name:       name,
+			Protocol:   spec.Protocol,
+			Hostname:   spec.Hostname,
+			Subdomain:  spec.Subdomain,
+			HttpAuth:   spec.HttpAuth,
+			RemotePort: spec.RemotePort,
+		}
+		if err := msg.WriteMsg(ctlConn, req); err != nil {
+			c.Error("Failed to request managed tunnel %s: %v", name, err)
+			c.managedErrors[name] = err.Error()
+		}
+	}
+
+	c.sendManagedAck()
+	c.update()
+}
+
+// sendManagedAck reports the current state of the desired set back to the
+// server so the dashboard can render per-mapping status.
+func (c *ClientModel) sendManagedAck() {
+	if !c.config.Managed || c.ctlConn == nil {
+		return
+	}
+	ack := &msg.AckConfig{Version: c.managedVersion}
+	for name := range c.managedDesired {
+		a := msg.AckTunnel{Name: name}
+		if url, ok := c.managedActive[name]; ok {
+			a.URL = url
+		} else if e, ok := c.managedErrors[name]; ok {
+			a.Error = e
+		}
+		ack.Tunnels = append(ack.Tunnels, a)
+	}
+	if err := msg.WriteMsg(c.ctlConn, ack); err != nil {
+		c.Error("Failed to send config ack: %v", err)
+	}
+}
+
+// isAgentMode reports whether this session was assembled by agent mode
+// (zero-config, machine key). Agent mode always carries a fixed GateToken.
+func (c *ClientModel) isAgentMode() bool {
+	return c.config.Gate == "plain" && c.config.GateToken != ""
+}
+
+// tunnelMetasComplete reports whether every configured agent tunnel has
+// received its NewTunnel from the server.
+func (c *ClientModel) tunnelMetasComplete() bool {
+	return len(c.tunnelMetas) >= len(c.config.Tunnels)
+}
+
+// publishManual generates the connection card and remote-manual.{md,json}
+// from the currently established tunnels.
+func (c *ClientModel) publishManual() {
+	metas := make(map[string]struct {
+		PublicUrl string
+		ProtoName string
+		LocalAddr string
+	}, len(c.tunnelMetas))
+	for url, m := range c.tunnelMetas {
+		metas[url] = struct {
+			PublicUrl string
+			ProtoName string
+			LocalAddr string
+		}{url, m.ProtoName, m.LocalAddr}
+	}
+	services := classifyAgentServices(metas)
+	card, err := GenerateManual(c.config, services)
+	if err != nil {
+		c.Error("Failed to generate remote manual: %v", err)
+		return
+	}
+	c.card = card
+	c.Info("Remote manual written to %s (remote-manual.md, remote-manual.json)", card.ManualPath)
+}
+
+// onCodeRotate refreshes the manual whenever the access code rotates so the
+// files on disk always advertise the currently valid code. (Fixed machine
+// keys never rotate, so this only fires in rotating-code mode.)
+func (c *ClientModel) onCodeRotate(code string, expires time.Time) {
+	if c.isAgentMode() {
+		return
+	}
+	c.publishManual()
 }
 
 // Establishes and manages a tunnel proxy connection with the server
@@ -399,8 +634,19 @@ Content-Length: %d
 	m.connMeter.Mark(1)
 	c.update()
 	m.connTimer.Time(func() {
-		localConn := tunnel.Protocol.WrapConn(localConn, mvc.ConnectionContext{Tunnel: tunnel, ClientAddr: startPxy.ClientAddr})
-		bytesIn, bytesOut := conn.Join(localConn, remoteConn)
+		remote := conn.Conn(remoteConn)
+		// agent mode: the remote peer must pass the access-gateway
+		// handshake before any byte reaches the local service
+		if c.config.Gate == "plain" && c.gate != nil && tunnel.Protocol.GetName() == "tcp" {
+			authed, gerr := c.gate.Handshake(remoteConn)
+			if gerr != nil {
+				remoteConn.Info("Gateway rejected connection: %v", gerr)
+				return
+			}
+			remote = authed
+		}
+		local := conn.Conn(tunnel.Protocol.WrapConn(localConn, mvc.ConnectionContext{Tunnel: tunnel, ClientAddr: startPxy.ClientAddr}))
+		bytesIn, bytesOut := conn.Join(local, remote)
 		m.bytesIn.Update(bytesIn)
 		m.bytesOut.Update(bytesOut)
 		m.bytesInCount.Inc(bytesIn)

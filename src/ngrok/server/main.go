@@ -2,14 +2,20 @@ package server
 
 import (
 	"crypto/tls"
+	"fmt"
 	"math/rand"
+	"net"
+	"net/http"
+	"os"
+	"runtime/debug"
+	"strings"
+	"time"
+
 	"ngrok/conn"
 	log "ngrok/log"
 	"ngrok/msg"
+	"ngrok/server/dashboard"
 	"ngrok/util"
-	"os"
-	"runtime/debug"
-	"time"
 )
 
 const (
@@ -25,6 +31,9 @@ var (
 	// XXX: kill these global variables - they're only used in tunnel.go for constructing forwarding URLs
 	opts      *Options
 	listeners map[string]*conn.Listener
+
+	// dash is the web management console; nil when -webAddr is empty.
+	dash *dashboard.Dashboard
 )
 
 func NewProxy(pxyConn conn.Conn, regPxy *msg.RegProxy) {
@@ -117,6 +126,13 @@ func Main() {
 	tunnelRegistry = NewTunnelRegistry(registryCacheSize, registryCacheFile)
 	controlRegistry = NewControlRegistry()
 
+	// web management console (users, tunnels, live config push)
+	if opts.webAddr != "" {
+		if err := startDashboard(); err != nil {
+			panic(err)
+		}
+	}
+
 	// start listeners
 	listeners = make(map[string]*conn.Listener)
 
@@ -138,4 +154,72 @@ func Main() {
 
 	// ngrok clients
 	tunnelListener(opts.tunnelAddr, tlsConfig)
+}
+
+// startDashboard boots the management console and serves it on opts.webAddr.
+func startDashboard() error {
+	tunnelClientAddr := opts.tunnelAddr
+	if _, port, err := net.SplitHostPort(opts.tunnelAddr); err == nil && strings.HasPrefix(opts.tunnelAddr, ":") {
+		tunnelClientAddr = fmt.Sprintf("%s:%s", opts.domain, port)
+	}
+
+	d, err := dashboard.New(dashboard.Options{
+		Domain:     opts.domain,
+		TunnelAddr: tunnelClientAddr,
+		DataPath:   opts.webData,
+		DlDir:      opts.dlDir,
+		AdminPass:  opts.webAdminPass,
+	})
+	if err != nil {
+		return err
+	}
+
+	// reach live control connections through the registry (managed clients
+	// authenticate with ClientId "tun-<tunnelId>")
+	d.SetControlLookup(func(tunnelID string) (dashboard.ControlConn, bool) {
+		ctl := controlRegistry.Get(managedClientId(tunnelID))
+		if ctl == nil {
+			// return a nil interface (not a typed-nil *Control) so callers
+			// can rely on the nil check
+			return nil, false
+		}
+		return ctl, true
+	})
+
+	dash = d
+
+	if username, password, created := d.Bootstrap(); created {
+		msg := fmt.Sprintf("Dashboard: created initial admin account %q with password %q (change it after first login)", username, password)
+		log.Warn(msg)
+		fmt.Println("=============================================")
+		fmt.Println("  管理后台初始管理员: " + username)
+		fmt.Println("  初始密码: " + password)
+		fmt.Println("  (仅首次创建时打印, 请登录后尽快修改)")
+		fmt.Println("=============================================")
+	}
+
+	log.Info("Starting web management console on %s (data: %s)", opts.webAddr, opts.webData)
+	ln, err := net.Listen("tcp", opts.webAddr)
+	if err != nil {
+		return fmt.Errorf("webAddr %s: %v", opts.webAddr, err)
+	}
+	go func() {
+		srv := &http.Server{
+			Addr:              opts.webAddr,
+			Handler:           d.Handler(),
+			ReadHeaderTimeout: 10 * time.Second,
+			ReadTimeout:       60 * time.Second,
+			IdleTimeout:       120 * time.Second,
+			// no WriteTimeout: /dl/ serves client binaries to slow links
+		}
+		if err := srv.Serve(ln); err != nil {
+			panic(err)
+		}
+	}()
+	return nil
+}
+
+// managedClientId is the stable control-registry id for a managed tunnel.
+func managedClientId(tunnelID string) string {
+	return "tun-" + tunnelID
 }

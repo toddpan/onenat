@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Configuration struct {
@@ -23,7 +24,39 @@ type Configuration struct {
 	AuthToken          string                          `yaml:"auth_token,omitempty"`
 	Tunnels            map[string]*TunnelConfiguration `yaml:"tunnels,omitempty"`
 	LogTo              string                          `yaml:"-"`
-	Path               string                          `yaml:"-"`
+	// Managed mode: the dashboard pushes the tunnel set over the control
+	// channel; nothing below but server/token matters locally.
+	Managed  bool   `yaml:"-"`
+	TunnelID string `yaml:"tunnel_id,omitempty"`
+
+	// AI remote-agent support
+	// Gate enables the client-side access gateway on tcp tunnels:
+	// "plain" requires "AUTH <code>" as the first line, "off" (default)
+	// keeps classic transparent tunneling.
+	Gate string `yaml:"gate,omitempty"`
+	// GateToken pins a static access code instead of auto-generated
+	// rotating ones. When set, CodeTTL is ignored.
+	GateToken string `yaml:"gate_token,omitempty"`
+	// CodeTTL is how often the access code rotates (e.g. "30m").
+	// Empty or "0" means the code is valid for the whole session.
+	CodeTTL string `yaml:"code_ttl,omitempty"`
+	// ManualPath is the directory where remote-manual.md/.json and the
+	// connection card are written (default: ~/.ngrok.d).
+	ManualPath string `yaml:"manual_path,omitempty"`
+	// SshUser is advertised in the generated manual for AI agents.
+	SshUser string `yaml:"ssh_user,omitempty"`
+	// SshPort is the local sshd port advertised in the manual (default 22).
+	SshPort int `yaml:"ssh_port,omitempty"`
+	// MachineDesc tells the AI agent what this machine is for.
+	MachineDesc string `yaml:"machine_desc,omitempty"`
+	// Rules are behavioral constraints for the AI agent, embedded verbatim
+	// in the manual.
+	Rules []string `yaml:"rules,omitempty"`
+
+	// GateTTL is the parsed duration of CodeTTL (not user-settable directly).
+	GateTTL time.Duration `yaml:"-"`
+	// Path is the config file path (not user-settable).
+	Path string `yaml:"-"`
 }
 
 type TunnelConfiguration struct {
@@ -35,6 +68,11 @@ type TunnelConfiguration struct {
 }
 
 func LoadConfiguration(opts *Options) (config *Configuration, err error) {
+	// zero-config agent mode: no configuration file is involved at all
+	if opts.command == "agent" {
+		return buildAgentConfig(opts)
+	}
+
 	configPath := opts.config
 	if configPath == "" {
 		configPath = defaultPath()
@@ -70,6 +108,11 @@ func LoadConfiguration(opts *Options) (config *Configuration, err error) {
 	// set configuration defaults
 	if config.ServerAddr == "" {
 		config.ServerAddr = defaultServerAddr
+	}
+
+	// dashboard-managed clients run headless
+	if opts.command == "managed" && config.InspectAddr == "" {
+		config.InspectAddr = "disabled"
 	}
 
 	if config.InspectAddr == "" {
@@ -135,11 +178,60 @@ func LoadConfiguration(opts *Options) (config *Configuration, err error) {
 	// override configuration with command-line options
 	config.LogTo = opts.logto
 	config.Path = configPath
-	if opts.authtoken != "" {
-		config.AuthToken = opts.authtoken
+	if opts.config != "" || configHasContent(config) {
+		// config-file mode only when the user gave a file or the default
+		// file exists with content; agent mode skips this entirely
+		if opts.authtoken != "" {
+			config.AuthToken = opts.authtoken
+		}
+	}
+	if opts.gate != "" {
+		config.Gate = opts.gate
+	}
+
+	// parse gate settings
+	switch config.Gate {
+	case "":
+		config.Gate = "off"
+	case "plain", "off":
+	default:
+		err = fmt.Errorf("Invalid gate mode %q: must be plain or off", config.Gate)
+		return
+	}
+
+	if config.GateToken != "" && config.CodeTTL != "" {
+		err = fmt.Errorf("gate_token and code_ttl are mutually exclusive")
+		return
+	}
+
+	if config.CodeTTL != "" && config.CodeTTL != "0" {
+		if config.GateTTL, err = time.ParseDuration(config.CodeTTL); err != nil {
+			err = fmt.Errorf("Invalid code_ttl %q: %v", config.CodeTTL, err)
+			return
+		}
+		if config.GateTTL < 30*time.Second {
+			err = fmt.Errorf("code_ttl must be at least 30s")
+			return
+		}
+	}
+
+	if config.SshPort == 0 {
+		config.SshPort = 22
 	}
 
 	switch opts.command {
+	// dashboard-managed client: the server pushes the tunnel set via
+	// ConfigSync after authentication; the local file only carries
+	// server_addr + auth_token (+ tunnel_id metadata)
+	case "managed":
+		if config.ServerAddr == "" || config.AuthToken == "" {
+			err = fmt.Errorf("managed 模式配置必须包含 server_addr 与 auth_token " +
+				"(由管理后台一键安装脚本自动生成)")
+			return
+		}
+		config.Managed = true
+		config.Tunnels = make(map[string]*TunnelConfiguration)
+
 	// start a single tunnel, the default, simple ngrok behavior
 	case "default":
 		config.Tunnels = make(map[string]*TunnelConfiguration)
@@ -158,6 +250,36 @@ func LoadConfiguration(opts *Options) (config *Configuration, err error) {
 			if config.Tunnels["default"].Protocols[proto], err = normalizeAddress(opts.args[0], ""); err != nil {
 				return
 			}
+		}
+
+	// start a single tunnel for AI remote agents, with access gateway
+	// and a generated machine-readable remote access manual.
+	// (With no arguments this is now handled zero-config in buildAgentConfig
+	// before any config file is read; reaching this branch means the user
+	// passed -config explicitly.)
+	case "agent":
+		if len(opts.args) != 1 {
+			err = fmt.Errorf("Usage: ngrok agent <target-host[:ssh-port]>")
+			return
+		}
+
+		port, perr := strconv.Atoi(opts.args[0])
+		if perr != nil || port <= 0 || port > 65535 {
+			err = fmt.Errorf("Invalid local ssh port: %s", opts.args[0])
+			return
+		}
+
+		if config.Gate == "off" {
+			config.Gate = "plain"
+		}
+
+		config.Tunnels = make(map[string]*TunnelConfiguration)
+		config.Tunnels["agent"] = &TunnelConfiguration{
+			Subdomain:  opts.subdomain,
+			Hostname:   opts.hostname,
+			HttpAuth:   opts.httpauth,
+			RemotePort: uint16(opts.remotePort),
+			Protocols:  map[string]string{"tcp": fmt.Sprintf("127.0.0.1:%d", port)},
 		}
 
 	// list tunnels
@@ -214,6 +336,14 @@ func defaultPath() string {
 	}
 
 	return path.Join(homeDir, ".ngrok")
+}
+
+// configHasContent reports whether a parsed default config file actually
+// carried any settings (used to decide whether to treat $HOME/.ngrok as a
+// real config or ignore it for zero-config agent mode).
+func configHasContent(c *Configuration) bool {
+	return c.ServerAddr != "" || c.AuthToken != "" || len(c.Tunnels) > 0 ||
+		c.HttpProxy != "" || c.InspectAddr != ""
 }
 
 func normalizeAddress(addr string, propName string) (string, error) {

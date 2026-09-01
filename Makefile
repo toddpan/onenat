@@ -1,5 +1,6 @@
-.PHONY: default server client deps fmt clean all release-all assets client-assets server-assets contributors
+.PHONY: default server client deps fmt clean all release-all assets client-assets server-assets contributors release-clients
 export GOPATH:=$(shell pwd)
+export GO111MODULE:=off
 
 BUILDTAGS=debug
 default: all
@@ -38,6 +39,17 @@ release-client: client
 
 release-server: BUILDTAGS=release
 release-server: server
+
+# 交叉编译客户端产物到 ./dl/ (管理后台 /dl/ 分发用)
+release-clients:
+	mkdir -p dl
+	GOOS=linux   GOARCH=amd64 go build -tags '$(BUILDTAGS)' -o dl/ngrok_linux_amd64      ngrok/main/ngrok
+	GOOS=linux   GOARCH=arm64 go build -tags '$(BUILDTAGS)' -o dl/ngrok_linux_arm64      ngrok/main/ngrok
+	GOOS=linux   GOARCH=arm   go build -tags '$(BUILDTAGS)' -o dl/ngrok_linux_arm        ngrok/main/ngrok
+	GOOS=darwin  GOARCH=arm64 go build -tags '$(BUILDTAGS)' -o dl/ngrok_darwin_arm64     ngrok/main/ngrok
+	GOOS=darwin  GOARCH=amd64 go build -tags '$(BUILDTAGS)' -o dl/ngrok_darwin_amd64     ngrok/main/ngrok
+	GOOS=windows GOARCH=amd64 go build -tags '$(BUILDTAGS)' -o dl/ngrok_windows_amd64.exe ngrok/main/ngrok
+	GOOS=windows GOARCH=arm64 go build -tags '$(BUILDTAGS)' -o dl/ngrok_windows_arm64.exe ngrok/main/ngrok
 
 release-all: fmt release-client release-server
 

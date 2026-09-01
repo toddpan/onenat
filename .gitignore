@@ -8,3 +8,14 @@ src/launchpad.net
 src/gopkg.in
 src/ngrok/client/assets/
 src/ngrok/server/assets/
+dl/
+dist/
+ngrokd-dashboard.json
+ngrokd.pid
+ngrokd.log*
+*.pid
+ngrokd-console.log
+ngrok-test/
+.mimosa/
+.v2c/
+.video_agent/
