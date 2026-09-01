@@ -514,6 +514,163 @@ func (d *Dashboard) apiDeleteUser(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"ok": "1"})
 }
 
+// ---------- api keys (用户自管理) ----------
+
+type apiKeyView struct {
+	ID         string     `json:"id"`
+	Name       string     `json:"name"`
+	Key        string     `json:"key"`
+	OwnerName  string     `json:"owner_name"`
+	CreatedAt  time.Time  `json:"created_at"`
+	LastUsedAt *time.Time `json:"last_used_at"`
+}
+
+func (d *Dashboard) apiKeyView(k *ApiKey) apiKeyView {
+	v := apiKeyView{ID: k.ID, Name: k.Name, Key: k.Key, CreatedAt: k.CreatedAt, LastUsedAt: k.LastUsedAt}
+	if u := d.store.UserByID(k.OwnerID); u != nil {
+		v.OwnerName = u.Username
+	}
+	return v
+}
+
+func (d *Dashboard) apiListKeys(w http.ResponseWriter, r *http.Request) {
+	u := d.UserFromRequest(r)
+	keys := d.store.ApiKeys(u.ID, u.Role == "admin")
+	out := make([]apiKeyView, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, d.apiKeyView(k))
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"keys": out})
+}
+
+func (d *Dashboard) apiCreateKey(w http.ResponseWriter, r *http.Request) {
+	u := d.UserFromRequest(r)
+	var in struct {
+		Name string `json:"name"`
+	}
+	if err := decodeBody(r, &in); err != nil {
+		writeErr(w, http.StatusBadRequest, "请求格式错误")
+		return
+	}
+	in.Name = strings.TrimSpace(in.Name)
+	if in.Name == "" {
+		writeErr(w, http.StatusBadRequest, "名称不能为空")
+		return
+	}
+	k := d.store.CreateApiKey(u.ID, in.Name)
+	if k == nil {
+		writeErr(w, http.StatusInternalServerError, "创建失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"key": d.apiKeyView(k)})
+}
+
+func (d *Dashboard) apiDeleteKey(w http.ResponseWriter, r *http.Request) {
+	u := d.UserFromRequest(r)
+	if err := d.store.DeleteApiKey(pathSeg(r, 2), u.ID, u.Role == "admin"); err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"ok": "1"})
+}
+
+// ---------- AI agent 只读接口 (API KEY 鉴权, 仅 GET) ----------
+//
+// API KEY 授予持有者对归属用户隧道资源的只读访问: 资源列表 + SKILL 文档。
+// 不存在任何经 API KEY 的创建/修改/删除能力。
+
+// userFromApiKey resolves Authorization: Bearer / ?key= to a store user.
+func (d *Dashboard) userFromApiKey(r *http.Request) (*ApiKey, *User, bool) {
+	key := r.Header.Get("Authorization")
+	if strings.HasPrefix(strings.ToLower(key), "bearer ") {
+		key = key[7:]
+	}
+	if key == "" {
+		key = r.URL.Query().Get("key")
+	}
+	k, u, ok := d.store.AuthenticateApiKey(strings.TrimSpace(key))
+	if ok {
+		d.store.TouchApiKey(k.ID)
+	}
+	return k, u, ok
+}
+
+// ResourcesView is the AI-facing, read-only view of a user's tunnels.
+type ResourcesView struct {
+	BaseURL string           `json:"base_url"`
+	Tunnels []ResourceTunnel `json:"tunnels"`
+}
+
+type ResourceTunnel struct {
+	ID       string            `json:"id"`
+	Name     string            `json:"name"`
+	Note     string            `json:"note"`
+	Online   bool              `json:"online"`
+	Mappings []ResourceMapping `json:"mappings"`
+}
+
+type ResourceMapping struct {
+	Proto     string `json:"proto"`
+	PublicURL string `json:"public_url"`
+	Local     string `json:"local"`
+	Note      string `json:"note"`
+	Error     string `json:"error,omitempty"`
+}
+
+// apiV1Resources lists the api-key owner's tunnels and their public
+// endpoints. Read-only by design: an api key can never create, modify or
+// delete anything.
+func (d *Dashboard) apiV1Resources(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		methodMismatch(w, r, http.MethodGet)
+		return
+	}
+	_, u, ok := d.userFromApiKey(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "无效的 API KEY")
+		return
+	}
+	out := ResourcesView{BaseURL: baseURL(r), Tunnels: []ResourceTunnel{}}
+	for _, t := range d.store.Tunnels(u.ID, false) {
+		rt := d.RuntimeView(t.ID)
+		view := ResourceTunnel{ID: t.ID, Name: t.Name, Note: t.Note, Online: d.IsOnline(t.ID), Mappings: []ResourceMapping{}}
+		for _, m := range t.Mappings {
+			view.Mappings = append(view.Mappings, ResourceMapping{
+				Proto:     m.Proto,
+				PublicURL: rt.Active[m.ID],
+				Local:     joinHostPort(m.LocalIP, m.LocalPort),
+				Note:      m.Note,
+				Error:     rt.Errors[m.ID],
+			})
+		}
+		out.Tunnels = append(out.Tunnels, view)
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// skillDoc renders the AI skill markdown for the api-key owner.
+func (d *Dashboard) skillDoc(w http.ResponseWriter, r *http.Request) {
+	if methodMismatch(w, r, http.MethodGet) {
+		return
+	}
+	k, u, ok := d.userFromApiKey(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "无效的 API KEY")
+		return
+	}
+	var b strings.Builder
+	if err := d.skillTmpl.Execute(&b, map[string]string{
+		"BaseURL": baseURL(r),
+		"Key":     k.Key,
+		"User":    u.Username,
+	}); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+	w.Write([]byte(b.String()))
+}
+
 // ---------- client-facing deploy endpoint ----------
 
 func (d *Dashboard) handleDeploy(w http.ResponseWriter, r *http.Request) {

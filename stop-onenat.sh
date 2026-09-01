@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # =====================================================================
-#  ngrokd 停止脚本: 读取 start-ngrokd.sh 写入的 ngrokd.pid 并优雅停止
-#  用法: bash stop-ngrokd.sh
+#  oneNat 停止脚本: 读取 start-onenat.sh 写入的 onenat.pid 并优雅停止
+#  用法: bash stop-onenat.sh
 # =====================================================================
 set -euo pipefail
 cd "$(dirname "$0")"
 
-PIDFILE="${PIDFILE:-./ngrokd.pid}"
+PIDFILE="${PIDFILE:-./onenat.pid}"
 
 if [ ! -f "$PIDFILE" ]; then
-  echo "未找到 $PIDFILE (服务未通过 start-ngrokd.sh 启动?)"
+  echo "未找到 $PIDFILE (服务未通过 start-onenat.sh 启动?)"
   exit 0
 fi
 
@@ -30,4 +30,4 @@ if kill -0 "$PID" 2>/dev/null; then
   kill -9 "$PID"
 fi
 rm -f "$PIDFILE"
-echo "✓ ngrokd 已停止"
+echo "✓ oneNat 已停止"

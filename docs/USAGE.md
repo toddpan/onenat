@@ -74,8 +74,8 @@ ngrokd 内置 Web 管理后台（详见 [docs/DASHBOARD.md](DASHBOARD.md)）：
 
 ```bash
 make release-clients                       # 客户端产物进 ./dl/, 供一键安装下载
-bash start-ngrokd.sh                       # WEB_PORT 默认 18080
-# 或: ./bin/ngrokd -webAddr=:18080 -webData=./ngrokd-dashboard.json -dlDir=./dl ...
+bash start-onenat.sh                       # WEB_PORT 默认 18080
+# 或: ./bin/ngrokd -webAddr=:18080 -webData=./onenat-dashboard.json -dlDir=./dl ...
 ```
 
 首次启动在日志/stdout 打印初始 `admin` 密码；`-webAddr=""` 可禁用后台。

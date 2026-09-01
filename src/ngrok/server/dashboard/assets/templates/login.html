@@ -2,12 +2,12 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>登录 · ngrokd 管理后台</title>
-<link rel="stylesheet" href="/static/style.css">
+<title>登录 · oneNat 管理后台</title>
+<link rel="stylesheet" href="/static/style.css?v={{staticV}}">
 </head>
 <body class="login-body">
   <div class="login-card">
-    <div class="login-brand">● ngrokd <small>管理后台</small></div>
+    <div class="login-brand">● oneNat <small>管理后台</small></div>
     {{if .Error}}<div class="alert alert-err">{{.Error}}</div>{{end}}
     <form method="post" action="/login">
       <label class="field">用户名

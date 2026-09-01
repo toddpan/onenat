@@ -1,6 +1,7 @@
 {{define "nav"}}<aside class="sidebar">
-  <div class="brand"><span class="brand-dot">●</span> ngrokd</div>
+  <div class="brand"><span class="brand-dot">●</span> oneNat</div>
   <a href="/" class="side-link {{if eq .Page "tunnels"}}active{{end}}"><span class="ico">⇄</span>隧道</a>
+  <a href="/keys" class="side-link {{if eq .Page "keys"}}active{{end}}"><span class="ico">🔑</span>API 密钥</a>
   {{if .IsAdmin}}<a href="/users" class="side-link {{if eq .Page "users"}}active{{end}}"><span class="ico">☺</span>用户管理</a>{{end}}
   <div class="side-foot">
     <div class="side-user">{{.User.Username}}</div>

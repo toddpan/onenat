@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
-# 发布包冒烟测试: 解压 → 启动 → HTTP 验证 → 停止
+# oneNat 发行包冒烟测试: 解压 → 启动 → HTTP 验证 → 停止
 set -euo pipefail
 cd /Users/tsbj/feyanggit/ngrok
 
+REL=oneNat-r2026.09.01
 rm -rf /tmp/reltest && mkdir -p /tmp/reltest
-tar -C /tmp/reltest -xzf dist/ngrokd-r2026.09.01.tar.gz
-cd /tmp/reltest/ngrokd-r2026.09.01
+tar -C /tmp/reltest -xzf dist/$REL.tar.gz
+cd /tmp/reltest/$REL
 
 echo "=== 启动(空 HTTP_PORT 应关闭 http 入口, 不抢 80):"
 TUNNEL_PORT=16450 HTTP_PORT= HTTPS_PORT= WEB_PORT=17198 \
-WEB_DATA=/tmp/reltest/dash.json LOGFILE=/tmp/reltest/ngrokd.log CONSOLE_LOG=/tmp/reltest/console.log \
-bash ./start-ngrokd.sh
+WEB_DATA=/tmp/reltest/dash.json LOGFILE=/tmp/reltest/onenat.log CONSOLE_LOG=/tmp/reltest/console.log \
+bash ./start-onenat.sh
 
 echo "=== HTTP 验证:"
 python3 - <<'PYEOF'
@@ -30,15 +31,15 @@ req = urllib.request.Request(
     headers={"Content-Type": "application/json"})
 print("登录:", urllib.request.urlopen(req, timeout=5).read().decode().strip())
 
+page = urllib.request.urlopen(base + "/login", timeout=5).read().decode()
+print("登录页品牌 oneNat:", "OK" if "oneNat" in page and "ngrokd" not in page else "FAIL")
+
 for path in ["/static/app" + ".js", "/static/style" + ".css",
-             "/dl/ngrok_linux_amd64", "/install" + ".sh"]:
+             "/dl/ngrok_linux_amd64", "/install" + ".sh", "/install" + ".ps1"]:
     code = urllib.request.urlopen(base + path, timeout=15).status
     print(f"{path}: {code}")
 PYEOF
 
-echo "=== 端口占用核对(80 应未被本实例占用):"
-lsof -nP -i TCP:80 2>/dev/null | grep -c ngrokd || echo "0 (正确: http 入口已关闭)"
-
 echo "=== 停止:"
-bash ./stop-ngrokd.sh
+bash ./stop-onenat.sh
 echo "=== 冒烟通过"

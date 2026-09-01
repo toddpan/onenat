@@ -1,9 +1,9 @@
 @echo off
 rem =====================================================================
-rem  ngrokd Windows 启动脚本 (前台运行, Ctrl+C 停止)
-rem  用法: 双击运行, 或在 cmd/PowerShell 里执行 start-ngrokd.bat
+rem  oneNat Windows 启动脚本 (前台运行, Ctrl+C 停止)
+rem  用法: 双击运行, 或在 cmd/PowerShell 里执行 start-onenat.bat
 rem
-rem  常用环境变量 (与 start-ngrokd.sh 同名同义):
+rem  常用环境变量 (与 start-onenat.sh 同名同义):
 rem    DOMAIN       对外域名      (默认 127.0.0.1)
 rem    TUNNEL_PORT  客户端隧道口  (默认 4443)
 rem    HTTP_PORT    公网 http 口  (默认 80; 设为 off 关闭)
@@ -19,9 +19,9 @@ cd /d "%~dp0"
 if "%DOMAIN%"==""          set DOMAIN=127.0.0.1
 if "%TUNNEL_PORT%"==""     set TUNNEL_PORT=4443
 if "%WEB_PORT%"==""        set WEB_PORT=18080
-if "%WEB_DATA%"==""        set WEB_DATA=ngrokd-dashboard.json
+if "%WEB_DATA%"==""        set WEB_DATA=onenat-dashboard.json
 if "%DL_DIR%"==""          set DL_DIR=dl
-if "%LOGFILE%"==""         set LOGFILE=ngrokd.log
+if "%LOGFILE%"==""         set LOGFILE=onenat.log
 if not defined HTTP_PORT   set HTTP_PORT=80
 
 set EXE=bin\ngrokd-windows-amd64.exe
@@ -57,7 +57,7 @@ if defined AUTH_TOKENS    set ARGS=%ARGS% -authToken %AUTH_TOKENS%
 if defined WEB_ADMIN_PASS set ARGS=%ARGS% -webAdminPass %WEB_ADMIN_PASS%
 
 echo.
-echo 启动 ngrokd (前台运行, Ctrl+C 停止):
+echo 启动 oneNat (前台运行, Ctrl+C 停止):
 echo   %EXE% %ARGS%
 echo   管理后台: http://%DOMAIN%:%WEB_PORT%   日志: %LOGFILE%
 echo.

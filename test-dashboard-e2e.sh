@@ -246,7 +246,26 @@ sleep 2
 ONLINE=$(req "$DASH/api/tunnels/$TUNID" | jget online)
 [ "$ONLINE" = "False" ] && ok "客户端断开后显示离线" || bad "客户端断开后仍显示在线"
 
-echo "== [11] Web 页面渲染 =="
+echo "== [11] APIKEY 与 SKILL =="
+AK=$(req -X POST -H 'Content-Type: application/json' -d '{"name":"e2e-ai"}' "$DASH/api/keys" | jget key.key)
+[[ "$AK" == onk-* ]] && ok "创建 API KEY" || bad "创建 API KEY: $AK"
+C=$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $AK" "$DASH/api/v1/resources")
+[ "$C" = "200" ] && ok "API KEY 查询资源列表 200" || bad "资源列表: $C"
+C=$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' -H "Authorization: Bearer onk-wrong" "$DASH/api/v1/resources")
+[ "$C" = "401" ] && ok "错误 API KEY 被拒(401)" || bad "错误 KEY: $C"
+C=$(curl -s --max-time 5 -X POST -H 'Content-Type: application/json' -H "Authorization: Bearer $AK" \
+  -d '{"name":"hack"}' "$DASH/api/tunnels" -o /dev/null -w '%{http_code}')
+[ "$C" = "401" ] && ok "API KEY 无法创建隧道(401)" || bad "API KEY 创建隧道: $C"
+SKILL=$(curl -s --max-time 5 "$DASH/skill/onenat.md?key=$AK")
+echo "$SKILL" | grep -q "oneNat 隧道资源使用技能" && ok "SKILL 文档可下载" || bad "SKILL 内容异常"
+echo "$SKILL" | grep -q "$AK" && ok "SKILL 内嵌 API KEY" || bad "SKILL 未含 KEY"
+C=$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' "$DASH/skill/onenat.md")
+[ "$C" = "401" ] && ok "无 KEY 下载 SKILL 被拒(401)" || bad "无 KEY SKILL: $C"
+KID=$(req "$DASH/api/keys" | jget keys.0.id)
+C=$(req -X DELETE "$DASH/api/keys/$KID" -o /dev/null -w '%{http_code}')
+[ "$C" = "200" ] && ok "撤销 API KEY" || bad "撤销 API KEY: $C"
+
+echo "== [12] Web 页面渲染 =="
 C=$(req -o /dev/null -w '%{http_code}' "$DASH/");           [ "$C" = "200" ] && ok "隧道列表页 200" || bad "列表页: $C"
 C=$(req -o /dev/null -w '%{http_code}' "$DASH/t/$TUNID");   [ "$C" = "200" ] && ok "隧道详情页 200" || bad "详情页: $C"
 C=$(req -o /dev/null -w '%{http_code}' "$DASH/users");      [ "$C" = "200" ] && ok "用户管理页 200" || bad "用户页: $C"
