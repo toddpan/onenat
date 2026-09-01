@@ -5,14 +5,14 @@ import os
 import sys
 import tarfile
 
-REL = "ngrokd-r2026.09.01"
+REL = "oneNat-r2026.09.01"
 OUT = os.path.join("dist", f"{REL}.tar.gz")
 
 ENTRIES = [
-    ("start-ngrokd.sh",            f"{REL}/start-ngrokd.sh",            True),
-    ("packaging/start-ngrokd.bat", f"{REL}/start-ngrokd.bat",           True),
-    ("stop-ngrokd.sh",             f"{REL}/stop-ngrokd.sh",             True),
-    ("packaging/ngrokd.service",   f"{REL}/ngrokd.service",             False),
+    ("start-onenat.sh",            f"{REL}/start-onenat.sh",            True),
+    ("packaging/start-onenat.bat", f"{REL}/start-onenat.bat",           True),
+    ("stop-onenat.sh",             f"{REL}/stop-onenat.sh",             True),
+    ("packaging/onenat.service",   f"{REL}/onenat.service",             False),
     ("packaging/README.md",        f"{REL}/README.md",                  False),
     ("dist/build/ngrokd-linux-amd64",  f"{REL}/bin/ngrokd-linux-amd64",  True),
     ("dist/build/ngrokd-linux-arm64",  f"{REL}/bin/ngrokd-linux-arm64",  True),

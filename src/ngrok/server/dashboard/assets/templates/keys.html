@@ -1,0 +1,64 @@
+{{define "page_keys"}}<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>API 密钥 · oneNat 管理后台</title>
+<link rel="stylesheet" href="/static/style.css?v={{staticV}}">
+</head>
+<body>
+{{template "nav" .}}
+<main class="main">
+  <div class="page-head"><h1>API 密钥</h1></div>
+
+  <div class="hint" style="margin-bottom:18px">
+    ⓘ API 密钥用于让 AI agent（通过 SKILL）**只读**访问你名下的隧道资源：
+    查询资源列表、获取 SSH / Web 公网入口。AI 没有创建、修改、删除任何隧道或端口的权限。
+    泄露后撤销对应密钥即可。
+  </div>
+
+  <div class="card">
+    <table class="tbl">
+      <thead><tr><th>名称</th><th>KEY</th><th>创建时间</th><th>最近使用</th>{{if .IsAdmin}}<th>归属</th>{{end}}<th>操作</th></tr></thead>
+      <tbody>
+      {{range .Keys}}
+        <tr>
+          <td><b>{{.Name}}</b></td>
+          <td><input class="cmd mono" style="width:230px" id="key-{{.ID}}" readonly value="{{.Key}}">
+              <a class="mini" onclick="copyText(document.getElementById('key-{{.ID}}').value)">复制</a></td>
+          <td class="muted">{{fmtTime .CreatedAt}}</td>
+          <td class="muted">{{if .LastUsedAt}}{{fmtTime .LastUsedAt}}{{else}}从未{{end}}</td>
+          {{if $.IsAdmin}}<td>{{.OwnerName}}</td>{{end}}
+          <td>
+            <a class="mini" onclick="showSkillPrompt('{{.ID}}')">AI 安装提示词</a>
+            <a class="mini danger" onclick="delKey('{{.ID}}', '{{.Name}}')">撤销</a>
+          </td>
+        </tr>
+      {{else}}
+        <tr><td colspan="6" class="empty">还没有 API 密钥 — 在下方创建一个，用于给 AI 安装 SKILL</td></tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="card-title">新建 API 密钥</div>
+    <form class="inline-form" onsubmit="return createKey(this)">
+      <input name="name" placeholder="名称, 如: 我的AI助手" required>
+      <button class="btn btn-primary" type="submit">创建</button>
+    </form>
+  </div>
+</main>
+
+<div id="modal" class="modal hidden" onclick="if(event.target===this)hideModal()">
+  <div class="modal-box" id="modal-box"></div>
+</div>
+<div id="toast" class="toast hidden"></div>
+<script>
+window.PAGE={role:"{{if .IsAdmin}}admin{{else}}user{{end}}"};
+window.KEY_PROMPTS={
+{{range .Keys}}"{{.ID}}": {{toJSON .InstallPrompt}},
+{{end}}};
+</script>
+<script src="/static/app.js?v={{staticV}}"></script>
+</body>
+</html>{{end}}

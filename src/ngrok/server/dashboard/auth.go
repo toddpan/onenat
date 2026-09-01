@@ -74,7 +74,7 @@ func VerifyPassword(password, stored string) bool {
 
 // ---------- sessions (HMAC-signed cookie: user|expiry|mac) ----------
 
-const sessionCookieName = "ngrokd_dash"
+const sessionCookieName = "onenat_dash"
 const sessionTTL = 7 * 24 * time.Hour
 
 type Sessions struct {

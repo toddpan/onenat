@@ -13,8 +13,8 @@ go build -tags debug -o bin/ngrokd ngrok/main/ngrokd
 make release-clients                     # 产物输出到 ./dl/ (linux/darwin/windows)
 
 # 2. 启动服务端(带管理后台, 默认 :18080)
-bash start-ngrokd.sh                     # 或手动:
-# ./bin/ngrokd -domain your.domain -webAddr=:18080 -webData=./ngrokd-dashboard.json \
+bash start-onenat.sh                     # 或手动:
+# ./bin/ngrokd -domain your.domain -webAddr=:18080 -webData=./onenat-dashboard.json \
 #             -dlDir=./dl -tunnelAddr=:4443 -httpAddr=:80
 
 # 3. 首次启动会在 stdout/日志打印初始 admin 密码, 浏览器打开 http://server:18080 登录
@@ -69,7 +69,7 @@ bash start-ngrokd.sh                     # 或手动:
 | **端口映射 Mapping** | 隧道下的一条转发规则：协议(tcp/http/https) + 本地 IP:Port → 公网端口(remote_port, 0=自动分配) + 备注。对应 ngrok 运行时的一条 Tunnel |
 | **节点** | v1 只有单节点（本 ngrokd），数据模型预留 `node` 字段，UI 显示服务器域名，"更改节点"功能暂不提供 |
 
-存储：**JSON 文件**（`-webData`，默认 `./ngrokd-dashboard.json`），内存加锁 + 变更时
+存储：**JSON 文件**（`-webData`，默认 `./onenat-dashboard.json`），内存加锁 + 变更时
 原子写（临时文件 + rename）。不引入数据库，保持零依赖。
 
 ```go
@@ -275,11 +275,31 @@ POST   /api/tunnels/{id}/mappings     添加映射
 PATCH  /api/mappings/{mid}            修改映射(在线客户端实时生效)
 DELETE /api/mappings/{mid}            删除映射
 
+GET    /api/keys                      API KEY 列表(用户看自己的, admin 全部)
+POST   /api/keys                      创建 API KEY {name}
+DELETE /api/keys/{id}                 撤销 API KEY
 GET    /api/users                     用户列表(admin)
 POST   /api/users                     新建用户(admin)
 PATCH  /api/users/{id}                改角色/重置密码(admin)
 DELETE /api/users/{id}                删除用户(admin)
 ```
+
+AI agent 专用（API KEY 鉴权, 仅 GET, 只读）:
+
+```
+GET /api/v1/resources        资源列表: KEY 归属用户名下隧道的公网入口
+                             (Authorization: Bearer <key> 或 ?key=)
+GET /skill/onenat.md?key=    SKILL 文档(Markdown, 含认证与资源使用说明)
+```
+
+### 5.2.1 APIKEY 与 AI SKILL
+
+- **APIKEY 管理**: 后台左侧"API 密钥"页, 每个用户自建自管（名称/KEY/最近使用/撤销）。
+  KEY 形如 `onk-...`, 只读——能查资源列表、能连资源, 无任何创建/修改/删除能力。
+- **SKILL**: 平台内置 SKILL 模板, 按 KEY 实时渲染（内含 API 地址 + KEY + 资源使用说明:
+  如何查列表、SSH/TCP/Web 分别怎么连、离线资源怎么处理、行为约定）。
+- **安装方式**: 密钥页每条 KEY 配有"AI 安装提示词", 复制一行给任意 AI 助手即可——
+  提示词内含 SKILL 下载地址与 APIKEY, AI 下载阅读后即具备资源使用能力（与客户端一键安装同思路）。
 
 客户端/安装器专用（无 Session，ID+KEY 鉴权，常数时间比较 + 简单限速）：
 
@@ -360,7 +380,7 @@ Makefile 增加 `make release-clients` 交叉编译产物列表，管理员部�
 | 参数 | 默认 | 说明 |
 |---|---|---|
 | `-webAddr` | `:18080` | 管理后台监听地址，空串=禁用 |
-| `-webData` | `./ngrokd-dashboard.json` | 用户/隧道数据文件 |
+| `-webData` | `./onenat-dashboard.json` | 用户/隧道数据文件 |
 | `-webAdminPass` | 随机 | 首次初始化 admin 的密码（仅库为空时生效） |
 | `-dlDir` | `./dl` | 客户端二进制分发目录 |
 

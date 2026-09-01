@@ -1,15 +1,24 @@
-# ngrokd 服务端发行包 r2026.09.01
+# oneNat 服务端发行包 r2026.09.01
 
-公网隧道服务端 ngrokd + Web 管理后台 + 客户端一键安装分发，开箱即用。
+公网隧道服务端 + Web 管理后台 + 客户端一键安装分发 + AI SKILL，开箱即用。
+
+**功能一览**
+
+- 隧道管理: Web 端创建隧道/端口映射(SSH、Web 等), 在线增删改实时生效
+- 用户管理: 管理员 / 普通用户两级角色
+- 客户端一键安装: Linux/macOS/Windows 各一行命令, 自动下载+配置+常驻
+- **AI SKILL**: 用户自建 API KEY, 复制一行提示词给 AI 助手, AI 即可
+  只读查询并使用你名下的隧道资源 (SSH/Web 公网入口); 无任何创建/修改权限
+- 可观测: 在线状态、最近连接记录、近 7 天流量
 
 ## 包内容
 
 ```
-ngrokd-r2026.09.01/
-├── start-ngrokd.sh      # 启动脚本 (Linux/macOS, 自动选择平台二进制, nohup 常驻)
-├── start-ngrokd.bat     # 启动脚本 (Windows, 前台运行, Ctrl+C 停止)
-├── stop-ngrokd.sh       # 停止脚本 (Linux/macOS; Windows 直接关窗口或 Ctrl+C)
-├── ngrokd.service       # systemd 服务模板 (Linux 生产常驻推荐)
+oneNat-r2026.09.01/
+├── start-onenat.sh      # 启动脚本 (Linux/macOS, 自动选择平台二进制, nohup 常驻)
+├── start-onenat.bat     # 启动脚本 (Windows, 前台运行, Ctrl+C 停止)
+├── stop-onenat.sh       # 停止脚本 (Linux/macOS; Windows 直接关窗口或 Ctrl+C)
+├── onenat.service       # systemd 服务模板 (Linux 生产常驻推荐)
 ├── bin/
 │   ├── ngrokd-linux-amd64         # 服务端 (Linux x86_64)
 │   ├── ngrokd-linux-arm64         # 服务端 (Linux arm64)
@@ -22,6 +31,9 @@ ngrokd-r2026.09.01/
 └── README.md                      # 本文档
 ```
 
+> 说明：服务端/客户端可执行文件沿用 ngrok 协议系命名（ngrokd / ngrok），
+> 产品与包名为 oneNat；两者通过启动脚本和文档衔接。
+
 ## 系统要求
 
 - Linux x86_64 / arm64（生产），macOS、Windows Server/10+ 均可运行
@@ -33,11 +45,11 @@ ngrokd-r2026.09.01/
 
 ```bash
 # 1. 解压
-tar xzf ngrokd-r2026.09.01.tar.gz
-cd ngrokd-r2026.09.01
+tar xzf oneNat-r2026.09.01.tar.gz
+cd oneNat-r2026.09.01
 
 # 2. 启动 (默认: 隧道口 4443 / 公网 http 80 / 管理后台 18080)
-bash start-ngrokd.sh
+bash start-onenat.sh
 
 # 3. 浏览器打开 http://<服务器IP>:18080
 #    初始管理员 admin / <随机密码>  — 启动输出会直接打印, 登录后请修改
@@ -61,26 +73,7 @@ HKCU Run 键），不需要管理员权限；重装/升级重复执行同一条�
 
 内网机装好后，Web 端改端口映射对在线客户端**实时生效**，无需重装。
 
-## Windows 上运行
-
-双击或命令行执行 `start-ngrokd.bat`（前台运行，Ctrl+C 或关窗口停止）：
-
-```bat
-rem 默认配置启动 (隧道口 4443 / http 80 / 管理后台 18080)
-start-ngrokd.bat
-
-rem 自定义示例 (cmd):
-set DOMAIN=ngrok.example.com
-set WEB_ADMIN_PASS=YourInitialPass
-start-ngrokd.bat
-```
-
-- `HTTP_PORT=off` / `WEB_PORT=off` 可分别关闭 http 入口 / 管理后台。
-- Windows 常驻建议用任务计划程序（Task Scheduler，"计算机启动时运行"）或
-  NSSM 注册为系统服务；初始 admin 密码打印在控制台与 `%LOGFILE%`。
-- 注意：Windows 服务端适合本地/内网测试，公网生产推荐 Linux + systemd。
-
-## 常用环境变量（start-ngrokd.sh / start-ngrokd.bat）
+## 常用环境变量（start-onenat.sh / start-onenat.bat）
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
@@ -91,32 +84,51 @@ start-ngrokd.bat
 | `TLS_CERT` / `TLS_KEY` | 内嵌自签证书 | 正式 TLS 证书路径（https 隧道用） |
 | `AUTH_TOKENS` | 空=不校验 | 静态密钥白名单（逗号分隔）；管理后台的隧道 KEY 始终有效 |
 | `WEB_PORT` | `18080` | 管理后台端口，空字符串禁用后台 |
-| `WEB_DATA` | `./ngrokd-dashboard.json` | 用户/隧道数据文件 |
+| `WEB_DATA` | `./onenat-dashboard.json` | 用户/隧道数据文件 |
 | `WEB_ADMIN_PASS` | 随机 | 初始 admin 密码（仅数据文件为空时生效） |
 | `DL_DIR` | `./dl` | 客户端二进制分发目录 |
-| `LOGFILE` | `./ngrokd.log` | 日志文件 |
+| `LOGFILE` | `./onenat.log` | 日志文件 |
 
 示例（生产）：
 
 ```bash
 sudo DOMAIN=ngrok.example.com HTTP_PORT=80 HTTPS_PORT=443 \
      TLS_CERT=/etc/ssl/ngrok.crt TLS_KEY=/etc/ssl/ngrok.key \
-     WEB_ADMIN_PASS='YourInitialPass' bash start-ngrokd.sh
+     WEB_ADMIN_PASS='YourInitialPass' bash start-onenat.sh
 ```
+
+## Windows 上运行
+
+双击或命令行执行 `start-onenat.bat`（前台运行，Ctrl+C 或关窗口停止）：
+
+```bat
+rem 默认配置启动 (隧道口 4443 / http 80 / 管理后台 18080)
+start-onenat.bat
+
+rem 自定义示例 (cmd):
+set DOMAIN=ngrok.example.com
+set WEB_ADMIN_PASS=YourInitialPass
+start-onenat.bat
+```
+
+- `HTTP_PORT=off` / `WEB_PORT=off` 可分别关闭 http 入口 / 管理后台。
+- Windows 常驻建议用任务计划程序（Task Scheduler，"计算机启动时运行"）或
+  NSSM 注册为系统服务；初始 admin 密码打印在控制台与 `%LOGFILE%`。
+- 注意：Windows 服务端适合本地/内网测试，公网生产推荐 Linux + systemd。
 
 ## 生产部署：systemd 常驻（推荐）
 
 ```bash
 sudo cp bin/ngrokd-linux-amd64 /usr/local/bin/ngrokd
-sudo mkdir -p /opt/ngrokd && sudo cp -r dl ngrokd.service /opt/ngrokd/
-sudoedit /opt/ngrokd/ngrokd.service     # 修改 WorkingDirectory 与 -domain
-sudo cp /opt/ngrokd/ngrokd.service /etc/systemd/system/
+sudo mkdir -p /opt/onenat && sudo cp -r dl onenat.service /opt/onenat/
+sudoedit /opt/onenat/onenat.service     # 修改 WorkingDirectory 与 -domain
+sudo cp /opt/onenat/onenat.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now ngrokd
+sudo systemctl enable --now onenat
 ```
 
-初始密码查看：`grep "with password" /var/log/...`（按 unit 里配置的日志路径），
-或直接用 journalctl：`journalctl -u ngrokd | grep password`。
+初始密码查看：`journalctl -u onenat | grep password`，或按 unit 里配置的
+日志路径 grep `with password`。
 
 ## 防火墙放行清单
 
@@ -134,19 +146,19 @@ sudo systemctl enable --now ngrokd
 - **手动运行**：`ngrok managed -config=ngrok-managed.yml`
   （配置文件由后台生成，内容仅含服务器地址与隧道 KEY）。
 - **旧式 agent 模式**（不依赖后台）：`ngrok agent -server=<域名>:4443`。
-- Windows 客户端：下载 `dl/ngrok_windows_amd64.exe`（x86_64）或
+- **Windows 客户端**：下载 `dl/ngrok_windows_amd64.exe`（x86_64）或
   `dl/ngrok_windows_arm64.exe`（ARM 设备），放到固定目录后手动运行：
   `ngrok_windows_amd64.exe -config=ngrok-managed.yml managed`
   （配置文件从管理后台 `/api/deploy?id=&key=` 获取，或直接复制详情页弹窗内容）。
 
 ## 升级与卸载
 
-- **升级服务端**：`bash stop-ngrokd.sh` → 替换 `bin/` 下二进制 → 重新启动；
-  `ngrokd-dashboard.json`（用户/隧道数据）保留即无缝升级。
+- **升级服务端**：`bash stop-onenat.sh` → 替换 `bin/` 下二进制 → 重新启动；
+  `onenat-dashboard.json`（用户/隧道数据）保留即无缝升级。
 - **升级客户端**：管理后台"重置密钥"后重发一键安装命令，或在客户端重跑安装
   命令（会覆盖二进制并重启服务）。
-- **卸载**：`bash stop-ngrokd.sh && rm -rf <解压目录>`；systemd 方式另执行
-  `sudo systemctl disable --now ngrokd && sudo rm /etc/systemd/system/ngrokd.service`。
+- **卸载**：`bash stop-onenat.sh && rm -rf <解压目录>`；systemd 方式另执行
+  `sudo systemctl disable --now onenat && sudo rm /etc/systemd/system/onenat.service`。
 
 ## 安全建议
 
@@ -155,7 +167,7 @@ sudo systemctl enable --now ngrokd
    TLS + BasicAuth；后台本身当前为 HTTP。
 3. **固定 TCP 端口**：需要固定公网端口的映射，在后台映射里显式填写
    `remote_port`；不填则自动分配（重连尽量归还原端口，但不保证）。
-4. **数据备份**：定期备份 `ngrokd-dashboard.json`（含用户与隧道 KEY，权限 0600）。
+4. **数据备份**：定期备份 `onenat-dashboard.json`（含用户与隧道 KEY，权限 0600）。
 5. 隧道 KEY 即客户端凭据，泄露后在后台"重置密钥"即可吊销。
 
 ## 版本信息
@@ -170,7 +182,7 @@ sudo systemctl enable --now ngrokd
 | 现象 | 处理 |
 |---|---|
 | 客户端连不上 4443 | 检查防火墙/安全组；`server_addr` 域名需解析到本机 |
-| 后台打不开 | `WEB_PORT` 是否被占用/禁用；`ss -tlnp | grep 18080` |
+| 后台打不开 | `WEB_PORT` 是否被占用/禁用；`ss -tlnp \| grep 18080` |
 | 一键安装提示二进制不存在 | `dl/` 目录与 `-dlDir` 是否一致；确认客户端平台有对应产物 |
-| 登录密码忘了 | 停服 → 删除/备份 `ngrokd-dashboard.json` → 重启（数据清空重建）或手工替换 users 段的密码哈希 |
+| 登录密码忘了 | 停服 → 删除/备份 `onenat-dashboard.json` → 重启（数据清空重建）或手工替换 users 段的密码哈希 |
 | TCP 隧道端口被占 | 后台映射换一个 remote_port，或点"修复隧道"重建 |

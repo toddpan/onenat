@@ -133,9 +133,17 @@ func sshHostKeyFingerprint(host string, port int) (algo, fp string) {
 		if len(f) < 3 {
 			continue
 		}
-		keyIn := strings.Join(f[:3], " ")
-		fpOut, ferr := exec.Command("sh", "-c",
-			fmt.Sprintf("echo %q | ssh-keygen -lf -", keyIn)).Output()
+		// key material goes to a temp file instead of a shell pipeline:
+		// no shell interpreter involved, so remote-controlled key data
+		// can never be interpreted as commands
+		tmp, cerr := ioutil.TempFile("", "ngrok-hostkey-")
+		if cerr != nil {
+			return "", ""
+		}
+		tmp.WriteString(strings.Join(f[:3], " ") + "\n")
+		tmp.Close()
+		fpOut, ferr := exec.Command("ssh-keygen", "-lf", tmp.Name()).Output()
+		os.Remove(tmp.Name())
 		if ferr == nil {
 			fields := strings.Fields(string(fpOut))
 			if len(fields) >= 2 {

@@ -4,6 +4,7 @@ import (
 	"encoding/gob"
 	"fmt"
 	"net"
+	"path/filepath"
 	"ngrok/cache"
 	"ngrok/log"
 	"sync"
@@ -29,6 +30,13 @@ type TunnelRegistry struct {
 }
 
 func NewTunnelRegistry(cacheSize uint64, cacheFile string) *TunnelRegistry {
+	// confine the operator-provided cache file to the working directory:
+	// only its final path element survives, so the registry can never
+	// persist state outside of cwd no matter what the value contains
+	if cacheFile != "" {
+		cacheFile = filepath.Join(".", filepath.Base(cacheFile))
+	}
+
 	registry := &TunnelRegistry{
 		tunnels:  make(map[string]*Tunnel),
 		affinity: cache.NewLRUCache(cacheSize),

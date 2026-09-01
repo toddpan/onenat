@@ -2,8 +2,8 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{{.T.Name}} · 隧道详情 · ngrokd 管理后台</title>
-<link rel="stylesheet" href="/static/style.css">
+<title>{{.T.Name}} · 隧道详情 · oneNat 管理后台</title>
+<link rel="stylesheet" href="/static/style.css?v={{staticV}}">
 </head>
 <body>
 {{template "nav" .}}
@@ -149,6 +149,6 @@ window.PAGE = {
   mappings: {{toJSON .T.Mappings}}
 };
 </script>
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v={{staticV}}"></script>
 </body>
 </html>{{end}}

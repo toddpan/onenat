@@ -19,3 +19,7 @@ ngrok-test/
 .mimosa/
 .v2c/
 .video_agent/
+onenat-dashboard.json
+onenat.log*
+onenat-console.log
+.DS_Store

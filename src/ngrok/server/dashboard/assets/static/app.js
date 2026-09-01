@@ -1,4 +1,4 @@
-// ngrokd dashboard front-end interactions (vanilla JS, no dependencies).
+// oneNat dashboard front-end interactions (vanilla JS, no dependencies).
 /* global PAGE */
 
 // ---------- tiny helpers ----------
@@ -26,13 +26,27 @@ function toast(msg, isErr) {
 }
 
 function copyText(text) {
+  // 统一入口: 先走 textarea+execCommand (HTTP 页面/局域网 IP 也能用),
+  // 失败再走 clipboard API (需要 secure context)。
+  const done = () => toast('已复制到剪贴板');
+  const fail = () => toast('复制失败, 请手动选中复制', true);
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand('copy');
+    ta.remove();
+    if (ok) { done(); return; }
+  } catch (e) { /* continue to clipboard API */ }
   if (navigator.clipboard && window.isSecureContext) {
-    navigator.clipboard.writeText(text).then(() => toast('已复制到剪贴板'));
-    return;
+    navigator.clipboard.writeText(text).then(done).catch(fail);
+  } else {
+    fail();
   }
-  const ta = document.createElement('textarea');
-  ta.value = text; document.body.appendChild(ta); ta.select();
-  document.execCommand('copy'); ta.remove(); toast('已复制到剪贴板');
 }
 
 function showModal(html) {
@@ -220,7 +234,40 @@ function copyInstallCmd(id) {
   copyText(document.getElementById(id || 'install-cmd').value);
 }
 
-// ---------- users page ----------
+// ---------- api keys page ----------
+
+async function createKey(form) {
+  const name = form.name.value.trim();
+  if (!name) { toast('请填写名称', true); return false; }
+  try {
+    const res = await api('POST', '/api/keys', { name });
+    toast('API 密钥已创建: ' + res.key.key);
+    location.reload();
+  } catch (e) { toast(e.message, true); }
+  return false;
+}
+
+async function delKey(id, name) {
+  if (!confirm('确定撤销 API 密钥 "' + name + '"? 使用它的 AI 将立即失去访问能力。')) return;
+  try { await api('DELETE', '/api/keys/' + id); location.reload(); }
+  catch (e) { toast(e.message, true); }
+}
+
+function showSkillPrompt(id) {
+  const prompt = (window.KEY_PROMPTS || {})[id];
+  if (!prompt) { toast('提示词不存在', true); return; }
+  // 提示词含引号, 不能内嵌进 onclick 属性; 存到全局变量按引用读取
+  window.__skillPrompt = prompt;
+  showModal(`
+    <h3>AI 安装提示词 (SKILL)</h3>
+    <p class="muted small">把下面这一行提示词复制给任意 AI 助手, 它会自动下载并安装 oneNat 技能,
+    之后即可查询和使用你名下的隧道资源 (只有使用权, 无创建/修改权限)。</p>
+    <pre class="cfg" style="white-space:pre-wrap">${esc(prompt)}</pre>
+    <div class="modal-foot">
+      <button class="btn" onclick="hideModal()">关闭</button>
+      <button class="btn btn-primary" onclick="copyText(window.__skillPrompt)">复制提示词</button>
+    </div>`);
+}
 
 async function createUser(form) {
   const body = {

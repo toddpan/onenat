@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"time"
@@ -123,6 +124,12 @@ func Main() {
 
 	// init tunnel/control registry
 	registryCacheFile := os.Getenv("REGISTRY_CACHE_FILE")
+	if registryCacheFile != "" {
+		// confine the affinity-cache file to the working directory: only
+		// the final path element of the operator-provided value is kept,
+		// so the registry can never write outside of it
+		registryCacheFile = filepath.Join(".", filepath.Base(registryCacheFile))
+	}
 	tunnelRegistry = NewTunnelRegistry(registryCacheSize, registryCacheFile)
 	controlRegistry = NewControlRegistry()
 
@@ -189,10 +196,10 @@ func startDashboard() error {
 	dash = d
 
 	if username, password, created := d.Bootstrap(); created {
-		msg := fmt.Sprintf("Dashboard: created initial admin account %q with password %q (change it after first login)", username, password)
+		msg := fmt.Sprintf("oneNat dashboard: created initial admin account %q with password %q (change it after first login)", username, password)
 		log.Warn(msg)
 		fmt.Println("=============================================")
-		fmt.Println("  管理后台初始管理员: " + username)
+		fmt.Println("  oneNat 管理后台初始管理员: " + username)
 		fmt.Println("  初始密码: " + password)
 		fmt.Println("  (仅首次创建时打印, 请登录后尽快修改)")
 		fmt.Println("=============================================")

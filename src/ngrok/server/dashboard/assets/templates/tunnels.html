@@ -2,8 +2,8 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>隧道列表 · ngrokd 管理后台</title>
-<link rel="stylesheet" href="/static/style.css">
+<title>隧道列表 · oneNat 管理后台</title>
+<link rel="stylesheet" href="/static/style.css?v={{staticV}}">
 </head>
 <body>
 {{template "nav" .}}
@@ -63,6 +63,6 @@ window.PAGE = {
   users: [{{range .Users}}{{if .}}{id:"{{.ID}}",name:"{{.Username}}"},{{end}}{{end}}]
 };
 </script>
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v={{staticV}}"></script>
 </body>
 </html>{{end}}

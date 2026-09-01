@@ -2,8 +2,8 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>用户管理 · ngrokd 管理后台</title>
-<link rel="stylesheet" href="/static/style.css">
+<title>用户管理 · oneNat 管理后台</title>
+<link rel="stylesheet" href="/static/style.css?v={{staticV}}">
 </head>
 <body>
 {{template "nav" .}}
@@ -48,6 +48,6 @@
 
 <div id="toast" class="toast hidden"></div>
 <script>window.PAGE={role:"admin"};</script>
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v={{staticV}}"></script>
 </body>
 </html>{{end}}

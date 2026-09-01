@@ -29,6 +29,7 @@ type Dashboard struct {
 	tpl            *htmpl.Template
 	installTmpl    *ttmpl.Template
 	installPs1Tmpl *ttmpl.Template
+	skillTmpl      *ttmpl.Template
 
 	controlLookup func(tunnelID string) (ControlConn, bool)
 
@@ -165,6 +166,25 @@ func (d *Dashboard) route(w http.ResponseWriter, r *http.Request) {
 		d.requireUser(http.HandlerFunc(d.pageTunnelDetail)).ServeHTTP(w, r)
 	case p == "/users" && m == http.MethodGet:
 		d.requireAdmin(http.HandlerFunc(d.pageUsers)).ServeHTTP(w, r)
+	case p == "/keys" && m == http.MethodGet:
+		d.requireUser(http.HandlerFunc(d.pageKeys)).ServeHTTP(w, r)
+
+	// ---------- api keys (用户自管理) ----------
+	case p == "/api/keys" && m == http.MethodGet:
+		d.requireUser(http.HandlerFunc(d.apiListKeys)).ServeHTTP(w, r)
+	case p == "/api/keys" && m == http.MethodPost:
+		d.requireUser(http.HandlerFunc(d.apiCreateKey)).ServeHTTP(w, r)
+	case strings.HasPrefix(p, "/api/keys/"):
+		if methodMismatch(w, r, http.MethodDelete) {
+			return
+		}
+		d.requireUser(d.apiHandler(d.apiDeleteKey)).ServeHTTP(w, r)
+
+	// ---------- AI agent 只读接口 (API KEY 鉴权) ----------
+	case p == "/api/v1/resources":
+		d.apiV1Resources(w, r)
+	case p == "/skill/onenat.md":
+		d.skillDoc(w, r)
 
 	// ---------- tunnels api ----------
 	case p == "/api/me" && m == http.MethodGet:

@@ -35,14 +35,25 @@ type Mapping struct {
 
 type Tunnel struct {
 	ID        string     `json:"id"`
-	Key       string     `json:"key"` // "ngk-..." client credential
+	Key       string     `json:"key"` // "ngk-" 形态随机密钥, 客户端认证凭据
 	Name      string     `json:"name"`
 	Note      string     `json:"note"`
 	OwnerID   string     `json:"owner_id"`
 	Locked    bool       `json:"locked"`
-	Node      string     `json:"node"` // reserved for multi-node; today = server domain
+	Node      string     `json:"node"` // 预留多节点; 当前=服务器域名
 	CreatedAt time.Time  `json:"created_at"`
 	Mappings  []*Mapping `json:"mappings"`
+}
+
+// ApiKey 授予持有者对其归属用户隧道资源的只读访问权 (资源列表 + SKILL
+// 文档), 供 AI agent 使用; 不含任何创建/修改能力。
+type ApiKey struct {
+	ID         string     `json:"id"`
+	Name       string     `json:"name"`
+	Key        string     `json:"key"` // "onk-" 形态随机密钥
+	OwnerID    string     `json:"owner_id"`
+	CreatedAt  time.Time  `json:"created_at"`
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
 }
 
 type settings struct {
@@ -50,9 +61,10 @@ type settings struct {
 }
 
 type storeFile struct {
-	Settings settings         `json:"settings"`
-	Users    []*User          `json:"users"`
-	Tunnels  []*Tunnel        `json:"tunnels"`
+	Settings settings          `json:"settings"`
+	Users    []*User           `json:"users"`
+	Tunnels  []*Tunnel         `json:"tunnels"`
+	ApiKeys  []*ApiKey         `json:"api_keys,omitempty"`
 }
 
 type Store struct {
@@ -516,4 +528,102 @@ func (s *Store) MappingByID(mappingID string) (*Tunnel, *Mapping) {
 		}
 	}
 	return nil, nil
+}
+
+// ---------- api keys ----------
+
+func NewApiKeySecret() string {
+	return "onk-" + hex.EncodeToString(randBytes(20))
+}
+
+// ApiKeys returns api keys visible to the given user (owner-scoped; admin
+// sees all).
+func (s *Store) ApiKeys(ownerUserID string, admin bool) []*ApiKey {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]*ApiKey, 0, len(s.data.ApiKeys))
+	for _, k := range s.data.ApiKeys {
+		if admin || k.OwnerID == ownerUserID {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+func (s *Store) ApiKeyByID(id string) *ApiKey {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, k := range s.data.ApiKeys {
+		if k.ID == id {
+			return k
+		}
+	}
+	return nil
+}
+
+func (s *Store) CreateApiKey(ownerUserID, name string) *ApiKey {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	k := &ApiKey{
+		ID:        NewMappingID() + NewMappingID(),
+		Name:      name,
+		Key:       NewApiKeySecret(),
+		OwnerID:   ownerUserID,
+		CreatedAt: time.Now(),
+	}
+	s.data.ApiKeys = append(s.data.ApiKeys, k)
+	if err := s.saveLocked(); err != nil {
+		return nil
+	}
+	return k
+}
+
+func (s *Store) DeleteApiKey(id, ownerUserID string, admin bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, k := range s.data.ApiKeys {
+		if k.ID == id && (admin || k.OwnerID == ownerUserID) {
+			s.data.ApiKeys = append(s.data.ApiKeys[:i:i], s.data.ApiKeys[i+1:]...)
+			return s.saveLocked()
+		}
+	}
+	return fmt.Errorf("API KEY 不存在")
+}
+
+// AuthenticateApiKey validates a presented key and returns its owner user.
+// Comparison is constant-time per candidate.
+func (s *Store) AuthenticateApiKey(key string) (*ApiKey, *User, bool) {
+	if key == "" {
+		return nil, nil, false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, k := range s.data.ApiKeys {
+		if subtle.ConstantTimeCompare([]byte(k.Key), []byte(key)) == 1 {
+			for _, u := range s.data.Users {
+				if u.ID == k.OwnerID {
+					return k, u, true
+				}
+			}
+			return nil, nil, false
+		}
+	}
+	return nil, nil, false
+}
+
+// TouchApiKey records last-used time (best effort, throttled to once a
+// minute to avoid store rewrites on every AI request).
+func (s *Store) TouchApiKey(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, k := range s.data.ApiKeys {
+		if k.ID == id {
+			if k.LastUsedAt == nil || time.Since(*k.LastUsedAt) >= time.Minute {
+				now := time.Now()
+				k.LastUsedAt = &now
+				_ = s.saveLocked()
+			}
+			return
+		}
+	}
 }
