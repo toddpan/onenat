@@ -8,7 +8,7 @@ import (
 func TestSessionsRoundtrip(t *testing.T) {
 	s := NewSessions([]byte("test-secret"))
 	rec := httptest.NewRecorder()
-	s.Issue(rec, "admin")
+	s.Issue(rec, "admin", false)
 
 	cookie := ""
 	for _, c := range rec.Result().Cookies() {

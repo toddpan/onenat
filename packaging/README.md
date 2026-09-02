@@ -160,15 +160,24 @@ sudo systemctl enable --now onenat
 - **卸载**：`bash stop-onenat.sh && rm -rf <解压目录>`；systemd 方式另执行
   `sudo systemctl disable --now onenat && sudo rm /etc/systemd/system/onenat.service`。
 
-## 安全建议
+## 安全防护与最佳实践
 
 1. **改初始密码**：admin 初始密码为随机值，登录后立即重置。
-2. **管理后台不要裸奔公网**：用防火墙限制 18080 来源，或由 nginx/caddy 反代并加
-   TLS + BasicAuth；后台本身当前为 HTTP。
-3. **固定 TCP 端口**：需要固定公网端口的映射，在后台映射里显式填写
-   `remote_port`；不填则自动分配（重连尽量归还原端口，但不保证）。
-4. **数据备份**：定期备份 `onenat-dashboard.json`（含用户与隧道 KEY，权限 0600）。
-5. 隧道 KEY 即客户端凭据，泄露后在后台"重置密钥"即可吊销。
+2. **防内网穿透与 SSRF（默认开启）**：
+   - 服务端与客户端默认**仅允许转发 127.0.0.1 / localhost 本地服务**，任何非本地 IP 均会被服务端及客户端双重拦截；
+   - 如确实需要将公网流量转发给内网其他局域网主机（如 192.168.x.x），可在管理后台隧道编辑菜单中显式开启「允许局域网目标」，或客户端传入 `--allow-remote-targets` 参数。
+3. **代理连接签名（Anti-Spoofing）**：
+   - 客户端建立数据代理连接（Proxy Connection）时，强制校验服务端签发的一次性随机 Token 与基于隧道密钥的 HMAC-SHA256 签名，防止第三方伪造 ClientId 劫持流量连接池。
+4. **子域名多租户所有权绑定**：
+   - HTTP 子域名已在服务端数据层实施租户静态所有权保护，防止其他租户抢占已存在的知名子域名。
+5. **特权端口保护**：
+   - 公网 TCP 端口映射禁止绑定系统特权端口（< 1024）。
+6. **管理后台启用 HTTPS**：
+   - 可直接通过环境变量传入证书：`WEB_TLS_CERT=/path/to/cert.pem WEB_TLS_KEY=/path/to/key.pem bash start-onenat.sh`；
+   - 启用 HTTPS 后系统会自动将 Session Cookie 标记为 `Secure`；
+   - 亦可在生产环境前端通过 Nginx/Caddy 进行反向代理并配置 HTTPS。
+7. **数据备份**：定期备份 `onenat-dashboard.json`（含用户与隧道 KEY，权限 0600）。
+8. 隧道 KEY 即客户端凭据，泄露后在后台"重置密钥"即可吊销。
 
 ## 版本信息
 

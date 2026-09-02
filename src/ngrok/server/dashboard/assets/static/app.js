@@ -213,6 +213,16 @@ async function toggleLock() {
   catch (e) { toast(e.message, true); }
 }
 
+async function toggleAllowRemote() {
+  const next = !PAGE.allowRemoteTargets;
+  const msg = next
+    ? '确定开启「允许局域网目标」? 开启后可将公网流量转发给内网非本机 (如 192.168.x.x) 设备。'
+    : '确定切换为「限制仅本机 (127.0.0.1)」? 客户端将拒绝非本机回环目标的转发。';
+  if (!confirm(msg)) return;
+  try { await api('PATCH', '/api/tunnels/' + PAGE.tunnelId, { allow_remote_targets: next }); location.reload(); }
+  catch (e) { toast(e.message, true); }
+}
+
 async function delTunnel() {
   if (!confirm('确定删除该隧道? 所有端口映射会被移除, 在线客户端将被断开且无法重连。')) return;
   try { await api('DELETE', '/api/tunnels/' + PAGE.tunnelId); location.href = '/'; }

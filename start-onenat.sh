@@ -56,6 +56,8 @@ WEB_PORT="${WEB_PORT-18080}"
 WEB_DATA="${WEB_DATA-./onenat-dashboard.json}"
 DL_DIR="${DL_DIR-./dl}"
 WEB_ADMIN_PASS="${WEB_ADMIN_PASS-}"
+WEB_TLS_CERT="${WEB_TLS_CERT-}"
+WEB_TLS_KEY="${WEB_TLS_KEY-}"
 
 # 已在运行则先停
 if [ -f "$PIDFILE" ] && kill -0 "$(cat $PIDFILE)" 2>/dev/null; then
@@ -77,6 +79,9 @@ fi
 if [ -n "$WEB_PORT" ]; then
   ARGS+=( -webAddr ":$WEB_PORT" -webData "$WEB_DATA" -dlDir "$DL_DIR" )
   [ -n "$WEB_ADMIN_PASS" ] && ARGS+=( -webAdminPass "$WEB_ADMIN_PASS" )
+  if [ -n "$WEB_TLS_CERT" ] && [ -n "$WEB_TLS_KEY" ]; then
+    ARGS+=( -webTlsCrt "$WEB_TLS_CERT" -webTlsKey "$WEB_TLS_KEY" )
+  fi
 fi
 
 nohup "$BIN" "${ARGS[@]}" -log "$LOGFILE" -log-level "${LOGLEVEL:-INFO}" \

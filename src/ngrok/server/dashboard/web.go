@@ -177,7 +177,7 @@ func (d *Dashboard) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 		d.tpl.ExecuteTemplate(w, "page_login", &loginPageData{Error: "用户名或密码错误"})
 		return
 	}
-	d.sessions.Issue(w, u.Username)
+		d.sessions.Issue(w, u.Username, d.isSecure(r))
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 

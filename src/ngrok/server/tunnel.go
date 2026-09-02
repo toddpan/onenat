@@ -152,11 +152,15 @@ func NewTunnel(m *msg.ReqTunnel, ctl *Control) (t *Tunnel, err error) {
 			return nil
 		}
 
-		// use the custom remote port you asked for
-		if t.req.RemotePort != 0 {
-			bindTcp(int(t.req.RemotePort))
-			return
-		}
+			// use the custom remote port you asked for
+			if t.req.RemotePort != 0 {
+				if t.req.RemotePort < 1024 {
+					err = fmt.Errorf("Privileged remote port %d is not allowed (< 1024)", t.req.RemotePort)
+					return nil, err
+				}
+				bindTcp(int(t.req.RemotePort))
+				return
+			}
 
 		// try to return to you the same port you had before
 		cachedUrl := tunnelRegistry.GetCachedRegistration(t)
@@ -310,9 +314,9 @@ func (t *Tunnel) HandlePublicConnection(publicConn conn.Conn) {
 		return
 	}
 
-	// To reduce latency handling tunnel connections, we employ the following curde heuristic:
-	// Whenever we take a proxy connection from the pool, replace it with a new one
-	util.PanicToError(func() { t.ctl.out <- &msg.ReqProxy{} })
+		// To reduce latency handling tunnel connections, we employ the following curde heuristic:
+		// Whenever we take a proxy connection from the pool, replace it with a new one
+		util.PanicToError(func() { t.ctl.out <- &msg.ReqProxy{Token: t.ctl.issueProxyToken()} })
 
 	// no timeouts while connections are joined
 	proxyConn.SetDeadline(time.Time{})

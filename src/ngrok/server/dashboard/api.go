@@ -72,15 +72,16 @@ type MappingView struct {
 }
 
 type TunnelListItem struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Note      string    `json:"note"`
-	OwnerID   string    `json:"owner_id"`
-	OwnerName string    `json:"owner_name"`
-	Locked    bool      `json:"locked"`
-	Online    bool      `json:"online"`
-	Protos    []string  `json:"protos"`
-	CreatedAt time.Time `json:"created_at"`
+	ID                 string    `json:"id"`
+	Name               string    `json:"name"`
+	Note               string    `json:"note"`
+	OwnerID            string    `json:"owner_id"`
+	OwnerName          string    `json:"owner_name"`
+	Locked             bool      `json:"locked"`
+	AllowRemoteTargets bool      `json:"allow_remote_targets"`
+	Online             bool      `json:"online"`
+	Protos             []string  `json:"protos"`
+	CreatedAt          time.Time `json:"created_at"`
 }
 
 type TunnelDetail struct {
@@ -94,7 +95,7 @@ type TunnelDetail struct {
 func (d *Dashboard) tunnelListItem(t *Tunnel) TunnelListItem {
 	item := TunnelListItem{
 		ID: t.ID, Name: t.Name, Note: t.Note, OwnerID: t.OwnerID,
-		Locked: t.Locked, CreatedAt: t.CreatedAt,
+		Locked: t.Locked, AllowRemoteTargets: t.AllowRemoteTargets, CreatedAt: t.CreatedAt,
 		Online: d.IsOnline(t.ID),
 	}
 	if u := d.store.UserByID(t.OwnerID); u != nil {
@@ -144,6 +145,10 @@ func (d *Dashboard) ClientConfigText(t *Tunnel) string {
 
 // ---------- auth api ----------
 
+func (d *Dashboard) isSecure(r *http.Request) bool {
+	return d.opts.SecureCookie || r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+}
+
 func (d *Dashboard) apiLogin(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Username string `json:"username"`
@@ -158,7 +163,7 @@ func (d *Dashboard) apiLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "用户名或密码错误")
 		return
 	}
-	d.sessions.Issue(w, u.Username)
+	d.sessions.Issue(w, u.Username, d.isSecure(r))
 	writeJSON(w, http.StatusOK, map[string]string{"ok": "1", "role": u.Role})
 }
 
@@ -274,10 +279,11 @@ func (d *Dashboard) apiGetTunnel(w http.ResponseWriter, r *http.Request) {
 
 func (d *Dashboard) apiPatchTunnel(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Name    *string `json:"name"`
-		Note    *string `json:"note"`
-		Locked  *bool   `json:"locked"`
-		OwnerID *string `json:"owner_id"`
+		Name               *string `json:"name"`
+		Note               *string `json:"note"`
+		Locked             *bool   `json:"locked"`
+		AllowRemoteTargets *bool   `json:"allow_remote_targets"`
+		OwnerID            *string `json:"owner_id"`
 	}
 	if err := decodeBody(r, &in); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
@@ -290,7 +296,7 @@ func (d *Dashboard) apiPatchTunnel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name, note := t.Name, t.Note
-	locked, ownerID := t.Locked, t.OwnerID
+	locked, allowRemote, ownerID := t.Locked, t.AllowRemoteTargets, t.OwnerID
 	if in.Name != nil {
 		if strings.TrimSpace(*in.Name) == "" {
 			writeErr(w, http.StatusBadRequest, "隧道名称不能为空")
@@ -304,10 +310,13 @@ func (d *Dashboard) apiPatchTunnel(w http.ResponseWriter, r *http.Request) {
 	if in.Locked != nil {
 		locked = *in.Locked
 	}
+	if in.AllowRemoteTargets != nil {
+		allowRemote = *in.AllowRemoteTargets
+	}
 	if in.OwnerID != nil {
 		ownerID = *in.OwnerID
 	}
-	if err := d.store.UpdateTunnelMeta(id, name, note, locked, ownerID); err != nil {
+	if err := d.store.UpdateTunnelMeta(id, name, note, locked, allowRemote, ownerID); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}

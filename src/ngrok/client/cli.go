@@ -48,21 +48,22 @@ Examples:
 `
 
 type Options struct {
-	config     string
-	logto      string
-	loglevel   string
-	authtoken  string
-	httpauth   string
-	hostname   string
-	protocol   string
-	subdomain  string
-	remotePort int
-	gate       string
-	server     string
-	newKey     bool
-	webPort    int
-	command    string
-	args       []string
+	config             string
+	logto              string
+	loglevel           string
+	authtoken          string
+	httpauth           string
+	hostname           string
+	protocol           string
+	subdomain          string
+	remotePort         int
+	gate               string
+	server             string
+	newKey             bool
+	webPort            int
+	allowRemoteTargets bool
+	command            string
+	args               []string
 }
 
 func ParseArgs() (opts *Options, err error) {
@@ -159,12 +160,17 @@ func ParseArgs() (opts *Options, err error) {
 		false,
 		"[agent] rotate the machine key before starting (old key is revoked for new connections)")
 
-	webPort := flag.Int(
-		"web-port",
-		0,
-		"[agent] HTTP service port on the target host (default 80)")
+		webPort := flag.Int(
+			"web-port",
+			0,
+			"[agent] HTTP service port on the target host (default 80)")
 
-	flag.Parse()
+		allowRemoteTargets := flag.Bool(
+			"allow-remote-targets",
+			false,
+			"Allow proxying to non-loopback targets (e.g. LAN IPs); defaults to false to prevent SSRF")
+
+		flag.Parse()
 
 	opts = &Options{
 		config:     *config,
@@ -177,10 +183,11 @@ func ParseArgs() (opts *Options, err error) {
 		hostname:   *hostname,
 		remotePort: *remotePort,
 		gate:       *gate,
-		server:     *server,
-		newKey:     *newKey,
-		webPort:    *webPort,
-		command:    commandHint,
+		server:             *server,
+		newKey:             *newKey,
+		webPort:            *webPort,
+		allowRemoteTargets: *allowRemoteTargets,
+		command:            commandHint,
 	}
 
 	// re-parse the positionals left after pulling out the subcommand

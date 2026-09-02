@@ -100,17 +100,18 @@ func buildAgentConfig(opts *Options) (*Configuration, error) {
 		webPort = opts.webPort
 	}
 
-	cfg := &Configuration{
-		ServerAddr:         serverAddr,
-		TrustHostRootCerts: true,
-		AuthToken:          key,
-		InspectAddr:        "disabled",
-		Gate:               "plain",
-		GateToken:          key, // fixed gateway code == machine key
-		ManualPath:         defaultAgentDir(),
-		SshUser:            "", // unknown cross-machine; manual says "your login user"
-		SshPort:            target.ssh,
-		MachineDesc:        fmt.Sprintf("Remote host %s (SSH :%d, Web :%d). Operator provides OS details on request.", target.host, target.ssh, webPort),
+		cfg := &Configuration{
+			ServerAddr:         serverAddr,
+			TrustHostRootCerts: true,
+			AuthToken:          key,
+			InspectAddr:        "disabled",
+			Gate:               "plain",
+			GateToken:          key, // fixed gateway code == machine key
+			ManualPath:         defaultAgentDir(),
+			SshUser:            "", // unknown cross-machine; manual says "your login user"
+			SshPort:            target.ssh,
+			AllowRemoteTargets: target.host != "127.0.0.1" && target.host != "localhost",
+			MachineDesc:        fmt.Sprintf("Remote host %s (SSH :%d, Web :%d). Operator provides OS details on request.", target.host, target.ssh, webPort),
 		Rules: []string{
 			"Use SSH only for inspection and approved changes; confirm before any service restart",
 			"Never reboot/poweroff the machine",

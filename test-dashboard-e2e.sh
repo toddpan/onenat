@@ -125,6 +125,16 @@ C=$(curl -s --max-time 5 -b "$T/admin.cookies" -X POST -H 'Content-Type: applica
   "$DASH/api/tunnels/$TUNID/mappings" -o /dev/null -w '%{http_code}')
 [ "$C" = "400" ] && ok "非法映射参数被拒绝(400)" || bad "非法映射参数: $C"
 
+# 安全边界: 默认拒绝非本地 IP (防内网跳板与 SSRF)
+C=$(curl -s --max-time 5 -b "$T/admin.cookies" -X POST -H 'Content-Type: application/json' \
+  -d '{"proto":"tcp","local_ip":"192.168.1.100","local_port":8080}' "$DASH/api/tunnels/$TUNID/mappings" -o /dev/null -w '%{http_code}')
+[ "$C" = "400" ] && ok "默认拒绝内网非本机目标(400)" || bad "默认内网 IP: $C"
+
+# 安全边界: 拒绝特权端口 < 1024
+C=$(curl -s --max-time 5 -b "$T/admin.cookies" -X POST -H 'Content-Type: application/json' \
+  -d '{"proto":"tcp","local_port":8080,"remote_port":80}' "$DASH/api/tunnels/$TUNID/mappings" -o /dev/null -w '%{http_code}')
+[ "$C" = "400" ] && ok "拒绝公网特权端口 < 1024(400)" || bad "特权端口: $C"
+
 echo "== [3] 一键部署链路 =="
 DEPLOY=$(curl -s -o /dev/null -w '%{http_code}' "$DASH/api/deploy?id=$TUNID&key=WRONGKEY")
 [ "$DEPLOY" = "403" ] && ok "错误 KEY 拉取配置被拒(403)" || bad "错误 KEY: $DEPLOY"

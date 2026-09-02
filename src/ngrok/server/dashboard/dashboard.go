@@ -15,11 +15,12 @@ import (
 )
 
 type Options struct {
-	Domain     string // domain used when signing tunnels / generating client config
-	TunnelAddr string // client control address "host:port" baked into client config
-	DataPath   string // JSON persistence path
-	DlDir      string // directory serving prebuilt client binaries
-	AdminPass  string // optional initial admin password (random when empty)
+	Domain       string // domain used when signing tunnels / generating client config
+	TunnelAddr   string // client control address "host:port" baked into client config
+	DataPath     string // JSON persistence path
+	DlDir        string // directory serving prebuilt client binaries
+	AdminPass    string // optional initial admin password (random when empty)
+	SecureCookie bool   // mark session cookies Secure (recommended when behind HTTPS)
 }
 
 type Dashboard struct {

@@ -21,6 +21,7 @@
         <a onclick="showConfig()">📄 查看配置文件</a>
         <a onclick="repairTunnel()">🛠 修复隧道</a>
         <a onclick="resetKey()">🔑 重置密钥</a>
+        <a onclick="toggleAllowRemote()">{{if .T.AllowRemoteTargets}}🛡 限制仅本机 (127.0.0.1){{else}}🌐 允许局域网目标{{end}}</a>
         <a onclick="toggleLock()">{{if .T.Locked}}🔓 解锁隧道{{else}}🔒 锁定隧道{{end}}</a>
         <a class="danger" onclick="delTunnel()">🗑 删除隧道</a>
       </div>
@@ -39,6 +40,9 @@
               {{else}}<span class="badge badge-off">离线</span>{{end}}</td></tr>
         <tr><th>归属用户</th><td>{{.OwnerName}}</td></tr>
         <tr><th>节点名称</th><td>{{.T.Node}}</td></tr>
+        <tr><th>转发目标</th><td>
+              {{if .T.AllowRemoteTargets}}<span class="chip">允许局域网</span>
+              {{else}}<span class="badge badge-on">仅限本机 (127.0.0.1)</span>{{end}}</td></tr>
         <tr><th>客户端版本</th><td>{{if .T.Runtime.ClientVersion}}{{.T.Runtime.ClientVersion}} ({{.T.Runtime.ClientOS}}){{else}}—{{end}}</td></tr>
         <tr><th>创建时间</th><td class="muted">{{fmtTime .T.CreatedAt}}</td></tr>
         <tr><th>备注</th><td>{{.T.Note}}</td></tr>
@@ -150,6 +154,7 @@ window.PAGE = {
   tunnelId: "{{.T.ID}}",
   tunnelName: "{{.T.Name}}",
   locked: {{if .T.Locked}}true{{else}}false{{end}},
+  allowRemoteTargets: {{if .T.AllowRemoteTargets}}true{{else}}false{{end}},
   mappings: {{toJSON .T.Mappings}}
 };
 </script>

@@ -1,7 +1,10 @@
 package server
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"ngrok/conn"
@@ -56,6 +59,10 @@ type Control struct {
 	// proxy connections
 	proxies chan conn.Conn
 
+	// single-use proxy token tracking for managed tunnel auth
+	pendingTokens   map[string]time.Time
+	pendingTokensMu sync.Mutex
+
 	// identifier
 	id string
 
@@ -90,19 +97,20 @@ func tokenAllowed(required, presented string) bool {
 func NewControl(ctlConn conn.Conn, authMsg *msg.Auth) {
 	var err error
 
-	// create the object
-	c := &Control{
-		auth:            authMsg,
-		conn:            ctlConn,
-		out:             make(chan msg.Message),
-		in:              make(chan msg.Message),
-		proxies:         make(chan conn.Conn, 10),
-		lastPing:        time.Now(),
-		writerShutdown:  util.NewShutdown(),
-		readerShutdown:  util.NewShutdown(),
-		managerShutdown: util.NewShutdown(),
-		shutdown:        util.NewShutdown(),
-	}
+		// create the object
+		c := &Control{
+			auth:            authMsg,
+			conn:            ctlConn,
+			out:             make(chan msg.Message),
+			in:              make(chan msg.Message),
+			proxies:         make(chan conn.Conn, 10),
+			pendingTokens:   make(map[string]time.Time),
+			lastPing:        time.Now(),
+			writerShutdown:  util.NewShutdown(),
+			readerShutdown:  util.NewShutdown(),
+			managerShutdown: util.NewShutdown(),
+			shutdown:        util.NewShutdown(),
+		}
 
 	failAuth := func(e error) {
 		_ = msg.WriteMsg(ctlConn, &msg.AuthResp{Error: e.Error()})
@@ -186,8 +194,8 @@ func NewControl(ctlConn conn.Conn, authMsg *msg.Auth) {
 		ClientId:  c.id,
 	}
 
-	// As a performance optimization, ask for a proxy connection up front
-	c.out <- &msg.ReqProxy{}
+		// As a performance optimization, ask for a proxy connection up front
+		c.out <- &msg.ReqProxy{Token: c.issueProxyToken()}
 
 	// managed client: push the desired tunnel configuration right away so
 	// the client requests its tunnels from the dashboard's source of truth
@@ -407,12 +415,12 @@ func (c *Control) GetProxy() (proxyConn conn.Conn, err error) {
 			err = fmt.Errorf("No proxy connections available, control is closing")
 			return
 		}
-	default:
-		// no proxy available in the pool, ask for one over the control channel
-		c.conn.Debug("No proxy in pool, requesting proxy from control . . .")
-		if err = util.PanicToError(func() { c.out <- &msg.ReqProxy{} }); err != nil {
-			return
-		}
+		default:
+			// no proxy available in the pool, ask for one over the control channel
+			c.conn.Debug("No proxy in pool, requesting proxy from control . . .")
+			if err = util.PanicToError(func() { c.out <- &msg.ReqProxy{Token: c.issueProxyToken()} }); err != nil {
+				return
+			}
 
 		select {
 		case proxyConn, ok = <-c.proxies:
@@ -442,3 +450,51 @@ func (c *Control) Replaced(replacement *Control) {
 	// tell the old one to shutdown
 	c.shutdown.Begin()
 }
+
+// issueProxyToken generates a fresh single-use nonce for proxy connections
+func (c *Control) issueProxyToken() string {
+	c.pendingTokensMu.Lock()
+	defer c.pendingTokensMu.Unlock()
+	now := time.Now()
+	// reap expired tokens
+	for tok, exp := range c.pendingTokens {
+		if now.After(exp) {
+			delete(c.pendingTokens, tok)
+		}
+	}
+	tok, err := util.SecureRandId(16)
+	if err != nil {
+		tok = fmt.Sprintf("%d-%d", now.UnixNano(), time.Now().Nanosecond())
+	}
+	if c.pendingTokens == nil {
+		c.pendingTokens = make(map[string]time.Time)
+	}
+	c.pendingTokens[tok] = now.Add(90 * time.Second)
+	return tok
+}
+
+// VerifyAndConsumeProxyToken verifies and consumes the single-use token and its HMAC signature.
+func (c *Control) VerifyAndConsumeProxyToken(token, sig, tunnelKey string) bool {
+	// Preserve backwards compatibility for unmanaged/classic tunnels
+	if c.dashTunnelID == "" {
+		return true
+	}
+	if token == "" || sig == "" || tunnelKey == "" {
+		return false
+	}
+	c.pendingTokensMu.Lock()
+	defer c.pendingTokensMu.Unlock()
+	exp, ok := c.pendingTokens[token]
+	if !ok || time.Now().After(exp) {
+		delete(c.pendingTokens, token)
+		return false
+	}
+	delete(c.pendingTokens, token)
+
+	// verify HMAC-SHA256(tunnelKey, token)
+	mac := hmac.New(sha256.New, []byte(tunnelKey))
+	mac.Write([]byte(token))
+	want := hex.EncodeToString(mac.Sum(nil))
+	return subtle.ConstantTimeCompare([]byte(sig), []byte(want)) == 1
+}
+

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -34,15 +35,16 @@ type Mapping struct {
 }
 
 type Tunnel struct {
-	ID        string     `json:"id"`
-	Key       string     `json:"key"` // "ngk-" 形态随机密钥, 客户端认证凭据
-	Name      string     `json:"name"`
-	Note      string     `json:"note"`
-	OwnerID   string     `json:"owner_id"`
-	Locked    bool       `json:"locked"`
-	Node      string     `json:"node"` // 预留多节点; 当前=服务器域名
-	CreatedAt time.Time  `json:"created_at"`
-	Mappings  []*Mapping `json:"mappings"`
+	ID                 string     `json:"id"`
+	Key                string     `json:"key"` // "ngk-" 形态随机密钥, 客户端认证凭据
+	Name               string     `json:"name"`
+	Note               string     `json:"note"`
+	OwnerID            string     `json:"owner_id"`
+	Locked             bool       `json:"locked"`
+	AllowRemoteTargets bool       `json:"allow_remote_targets,omitempty"` // 是否允许转发非本地回环目标 (默认 false)
+	Node               string     `json:"node"`                           // 预留多节点; 当前=服务器域名
+	CreatedAt          time.Time  `json:"created_at"`
+	Mappings           []*Mapping `json:"mappings"`
 }
 
 // ApiKey 授予持有者对其归属用户隧道资源的只读访问权 (资源列表 + SKILL
@@ -386,7 +388,7 @@ func (s *Store) CreateTunnel(in NewTunnelInput) *Tunnel {
 	return t
 }
 
-func (s *Store) UpdateTunnelMeta(id, name, note string, locked bool, ownerID string) error {
+func (s *Store) UpdateTunnelMeta(id, name, note string, locked, allowRemoteTargets bool, ownerID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	t := s.tunnelByIDLocked(id)
@@ -396,6 +398,7 @@ func (s *Store) UpdateTunnelMeta(id, name, note string, locked bool, ownerID str
 	t.Name = name
 	t.Note = note
 	t.Locked = locked
+	t.AllowRemoteTargets = allowRemoteTargets
 	t.OwnerID = ownerID
 	return s.saveLocked()
 }
@@ -434,7 +437,18 @@ type MappingInput struct {
 	Note       string
 }
 
-func validateMappingInput(in *MappingInput) error {
+func isLoopbackHost(host string) bool {
+	h := strings.ToLower(strings.TrimSpace(host))
+	if h == "" || h == "127.0.0.1" || h == "localhost" || h == "::1" {
+		return true
+	}
+	if strings.HasPrefix(h, "127.") {
+		return true
+	}
+	return false
+}
+
+func validateMappingInput(in *MappingInput, allowRemote bool) error {
 	switch in.Proto {
 	case "tcp":
 	case "http", "https":
@@ -447,21 +461,60 @@ func validateMappingInput(in *MappingInput) error {
 	if in.RemotePort < 0 || in.RemotePort > 65535 {
 		return fmt.Errorf("公网端口无效")
 	}
+	if in.RemotePort > 0 && in.RemotePort < 1024 {
+		return fmt.Errorf("公网端口不允许使用系统特权端口 (< 1024)")
+	}
 	if in.LocalIP == "" {
 		in.LocalIP = "127.0.0.1"
+	}
+	if !allowRemote && !isLoopbackHost(in.LocalIP) {
+		return fmt.Errorf("默认仅允许转发 127.0.0.1 / localhost 本地服务; 如需转发局域网目标, 请在隧道配置中开启「允许远程目标」")
+	}
+	if in.Subdomain != "" {
+		sub := strings.ToLower(strings.TrimSpace(in.Subdomain))
+		for _, c := range sub {
+			if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') {
+				return fmt.Errorf("子域名仅允许小写字母、数字和中划线")
+			}
+		}
+		in.Subdomain = sub
+	}
+	return nil
+}
+
+func (s *Store) checkSubdomainConflictLocked(tunnelID, subdomain string) error {
+	if subdomain == "" {
+		return nil
+	}
+	targetTunnel := s.tunnelByIDLocked(tunnelID)
+	for _, t := range s.data.Tunnels {
+		for _, m := range t.Mappings {
+			if strings.EqualFold(m.Subdomain, subdomain) {
+				// 同一用户名下的隧道允许迁移/复用, 不同用户禁止抢占
+				if targetTunnel != nil && t.OwnerID != targetTunnel.OwnerID {
+					return fmt.Errorf("子域名 %q 已被其他用户占用", subdomain)
+				}
+			}
+		}
 	}
 	return nil
 }
 
 func (s *Store) AddMapping(tunnelID string, in MappingInput) (*Mapping, error) {
-	if err := validateMappingInput(&in); err != nil {
-		return nil, err
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	t := s.tunnelByIDLocked(tunnelID)
 	if t == nil {
 		return nil, fmt.Errorf("隧道不存在")
+	}
+	if len(t.Mappings) >= 30 {
+		return nil, fmt.Errorf("单条隧道最多添加 30 个端口映射")
+	}
+	if err := validateMappingInput(&in, t.AllowRemoteTargets); err != nil {
+		return nil, err
+	}
+	if err := s.checkSubdomainConflictLocked(tunnelID, in.Subdomain); err != nil {
+		return nil, err
 	}
 	m := &Mapping{
 		ID:         NewMappingID(),
@@ -477,14 +530,17 @@ func (s *Store) AddMapping(tunnelID string, in MappingInput) (*Mapping, error) {
 }
 
 func (s *Store) UpdateMapping(tunnelID, mappingID string, in MappingInput) error {
-	if err := validateMappingInput(&in); err != nil {
-		return err
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	t := s.tunnelByIDLocked(tunnelID)
 	if t == nil {
 		return fmt.Errorf("隧道不存在")
+	}
+	if err := validateMappingInput(&in, t.AllowRemoteTargets); err != nil {
+		return err
+	}
+	if err := s.checkSubdomainConflictLocked(tunnelID, in.Subdomain); err != nil {
+		return err
 	}
 	for _, m := range t.Mappings {
 		if m.ID == mappingID {
