@@ -369,7 +369,14 @@ IS_ROOT=0; [ "$(id -u)" = "0" ] && IS_ROOT=1
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 
 echo ">> [1/4] 下载客户端 $BIN_NAME ..."
-curl -fsSL "$SERVER/dl/$BIN_NAME" -o "$TMP/ngrok" 2>/dev/null || wget -q "$SERVER/dl/$BIN_NAME" -O "$TMP/ngrok"
+if command -v curl >/dev/null 2>&1; then
+  curl -# -fSL "$SERVER/dl/$BIN_NAME" -o "$TMP/ngrok"
+elif command -v wget >/dev/null 2>&1; then
+  wget --progress=bar:force -q --show-progress "$SERVER/dl/$BIN_NAME" -O "$TMP/ngrok" 2>&1 || wget -q "$SERVER/dl/$BIN_NAME" -O "$TMP/ngrok"
+else
+  echo "未找到 curl 或 wget"
+  exit 1
+fi
 chmod +x "$TMP/ngrok"
 
 if [ "$IS_ROOT" = "1" ] || [ -w /usr/local/bin ] 2>/dev/null; then

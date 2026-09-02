@@ -22,7 +22,7 @@ if "%WEB_PORT%"==""        set WEB_PORT=18080
 if "%WEB_DATA%"==""        set WEB_DATA=onenat-dashboard.json
 if "%DL_DIR%"==""          set DL_DIR=dl
 if "%LOGFILE%"==""         set LOGFILE=onenat.log
-if not defined HTTP_PORT   set HTTP_PORT=80
+if not defined HTTP_PORT   set HTTP_PORT=off
 
 set EXE=bin\ngrokd-windows-amd64.exe
 if not exist "%EXE%" (

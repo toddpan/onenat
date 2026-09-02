@@ -9,7 +9,7 @@
 #  常用环境变量:
 #    DOMAIN      对外域名 (默认 127.0.0.1, 纯 IP 本地测试)
 #    TUNNEL_PORT 客户端隧道口   (默认 4443)
-#    HTTP_PORT   公网 http 口   (默认 80; 设为空字符串则关闭)
+#    HTTP_PORT   公网 http 口   (默认关闭; 若要开启 http 隧道传 HTTP_PORT=80)
 #    HTTPS_PORT  公网 https 口  (默认关闭)
 #    AUTH_TOKENS 客户端密钥白名单, 逗号分隔 (默认空=不校验)
 #    TLS_CERT / TLS_KEY   正式证书路径 (生产 https 需配)
@@ -43,7 +43,7 @@ fi
 DOMAIN="${DOMAIN:-127.0.0.1}"
 # 注意 ${VAR-default} 不带冒号: 仅未设置时取默认, 显式设为空串=关闭该功能
 TUNNEL_PORT="${TUNNEL_PORT-4443}"
-HTTP_PORT="${HTTP_PORT-80}"
+HTTP_PORT="${HTTP_PORT-}"
 HTTPS_PORT="${HTTPS_PORT-}"
 AUTH_TOKENS="${AUTH_TOKENS-}"
 TLS_CERT="${TLS_CERT-}"
@@ -85,7 +85,10 @@ echo $! > "$PIDFILE"
 sleep 1
 
 if ! kill -0 "$(cat $PIDFILE)" 2>/dev/null; then
-  echo "✗ 启动失败, 日志尾部:"; tail -5 "$LOGFILE"; exit 1
+  echo "✗ 启动失败, 日志尾部:"
+  [ -f "$CONSOLE_LOG" ] && tail -10 "$CONSOLE_LOG"
+  [ -f "$LOGFILE" ] && tail -5 "$LOGFILE"
+  exit 1
 fi
 
 echo "✓ oneNat 已启动 (pid $(cat $PIDFILE), 日志: $LOGFILE)"

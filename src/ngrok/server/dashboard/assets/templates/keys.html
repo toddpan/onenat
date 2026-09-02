@@ -17,27 +17,29 @@
   </div>
 
   <div class="card">
-    <table class="tbl">
-      <thead><tr><th>名称</th><th>KEY</th><th>创建时间</th><th>最近使用</th>{{if .IsAdmin}}<th>归属</th>{{end}}<th>操作</th></tr></thead>
-      <tbody>
-      {{range .Keys}}
-        <tr>
-          <td><b>{{.Name}}</b></td>
-          <td><input class="cmd mono" style="width:230px" id="key-{{.ID}}" readonly value="{{.Key}}">
-              <a class="mini" onclick="copyText(document.getElementById('key-{{.ID}}').value)">复制</a></td>
-          <td class="muted">{{fmtTime .CreatedAt}}</td>
-          <td class="muted">{{if .LastUsedAt}}{{fmtTime .LastUsedAt}}{{else}}从未{{end}}</td>
-          {{if $.IsAdmin}}<td>{{.OwnerName}}</td>{{end}}
-          <td>
-            <a class="mini" onclick="showSkillPrompt('{{.ID}}')">AI 安装提示词</a>
-            <a class="mini danger" onclick="delKey('{{.ID}}', '{{.Name}}')">撤销</a>
-          </td>
-        </tr>
-      {{else}}
-        <tr><td colspan="6" class="empty">还没有 API 密钥 — 在下方创建一个，用于给 AI 安装 SKILL</td></tr>
-      {{end}}
-      </tbody>
-    </table>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <thead><tr><th>名称</th><th>KEY</th><th>创建时间</th><th>最近使用</th>{{if .IsAdmin}}<th>归属</th>{{end}}<th>操作</th></tr></thead>
+        <tbody>
+        {{range .Keys}}
+          <tr>
+            <td><b>{{.Name}}</b></td>
+            <td><input class="cmd mono" style="width:230px" id="key-{{.ID}}" readonly value="{{.Key}}">
+                <a class="mini" onclick="copyText(document.getElementById('key-{{.ID}}').value)">复制</a></td>
+            <td class="muted">{{fmtTime .CreatedAt}}</td>
+            <td class="muted">{{if .LastUsedAt}}{{fmtTime .LastUsedAt}}{{else}}从未{{end}}</td>
+            {{if $.IsAdmin}}<td>{{.OwnerName}}</td>{{end}}
+            <td>
+              <a class="mini" onclick="showSkillPrompt('{{.ID}}')">AI 安装提示词</a>
+              <a class="mini danger" onclick="delKey('{{.ID}}', '{{.Name}}')">撤销</a>
+            </td>
+          </tr>
+        {{else}}
+          <tr><td colspan="6" class="empty">还没有 API 密钥 — 在下方创建一个，用于给 AI 安装 SKILL</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
   </div>
 
   <div class="card">

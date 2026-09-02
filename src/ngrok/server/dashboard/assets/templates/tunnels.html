@@ -28,27 +28,29 @@
   </div>
 
   <div class="card">
-    <table class="tbl">
-      <thead><tr>
-        <th>隧道名称</th><th>状态</th><th>协议</th><th>归属用户</th><th>创建时间</th><th>详情</th>
-      </tr></thead>
-      <tbody>
-      {{range .Tunnels}}
-        <tr>
-          <td><span class="dot {{if .Online}}on{{else}}off{{end}}"></span>
-              <a class="tname" href="/t/{{.ID}}">{{.Name}}</a>
-              {{if .Locked}}<span class="chip chip-lock">锁定</span>{{end}}</td>
-          <td>{{if .Online}}<span class="badge badge-on">在线</span>{{else}}<span class="badge badge-off">离线</span>{{end}}</td>
-          <td>{{range .Protos}}<span class="chip">{{.}}</span> {{end}}</td>
-          <td>{{.OwnerName}}</td>
-          <td class="muted">{{fmtTime .CreatedAt}}</td>
-          <td><a class="arrow" href="/t/{{.ID}}">›</a></td>
-        </tr>
-      {{else}}
-        <tr><td colspan="6" class="empty">暂无隧道{{if .IsAdmin}} — 点击右上角「创建新隧道」{{end}}</td></tr>
-      {{end}}
-      </tbody>
-    </table>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <thead><tr>
+          <th>隧道名称</th><th>状态</th><th>协议</th><th>归属用户</th><th>创建时间</th><th>详情</th>
+        </tr></thead>
+        <tbody>
+        {{range .Tunnels}}
+          <tr>
+            <td><span class="dot {{if .Online}}on{{else}}off{{end}}"></span>
+                <a class="tname" href="/t/{{.ID}}">{{.Name}}</a>
+                {{if .Locked}}<span class="chip chip-lock">锁定</span>{{end}}</td>
+            <td>{{if .Online}}<span class="badge badge-on">在线</span>{{else}}<span class="badge badge-off">离线</span>{{end}}</td>
+            <td>{{range .Protos}}<span class="chip">{{.}}</span> {{end}}</td>
+            <td>{{.OwnerName}}</td>
+            <td class="muted">{{fmtTime .CreatedAt}}</td>
+            <td><a class="arrow" href="/t/{{.ID}}">›</a></td>
+          </tr>
+        {{else}}
+          <tr><td colspan="6" class="empty">暂无隧道{{if .IsAdmin}} — 点击右上角「创建新隧道」{{end}}</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
   </div>
 </main>
 

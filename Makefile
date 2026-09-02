@@ -2,25 +2,26 @@
 export GOPATH:=$(shell pwd)
 export GO111MODULE:=off
 
+GO ?= $(shell if [ -x /Users/tsbj/.toolchains/go1.24/bin/go ]; then echo /Users/tsbj/.toolchains/go1.24/bin/go; else which go; fi)
 BUILDTAGS=debug
 default: all
 
 deps: assets
-	go get -tags '$(BUILDTAGS)' -d -v ngrok/...
+	$(GO) get -tags '$(BUILDTAGS)' -d -v ngrok/...
 
 server: deps
-	go install -tags '$(BUILDTAGS)' ngrok/main/ngrokd
+	$(GO) install -tags '$(BUILDTAGS)' ngrok/main/ngrokd
 
 fmt:
-	go fmt ngrok/...
+	$(GO) fmt ngrok/...
 
 client: deps
-	go install -tags '$(BUILDTAGS)' ngrok/main/ngrok
+	$(GO) install -tags '$(BUILDTAGS)' ngrok/main/ngrok
 
 assets: client-assets server-assets
 
 bin/go-bindata:
-	GOOS="" GOARCH="" go get github.com/jteeuwen/go-bindata/go-bindata
+	GOOS="" GOARCH="" $(GO) get github.com/jteeuwen/go-bindata/go-bindata
 
 client-assets: bin/go-bindata
 	bin/go-bindata -nomemcopy -pkg=assets -tags=$(BUILDTAGS) \
@@ -43,20 +44,20 @@ release-server: server
 # 交叉编译客户端产物到 ./dl/ (管理后台 /dl/ 分发用)
 release-clients:
 	mkdir -p dl
-	GOOS=linux   GOARCH=amd64 go build -tags '$(BUILDTAGS)' -o dl/ngrok_linux_amd64      ngrok/main/ngrok
-	GOOS=linux   GOARCH=arm64 go build -tags '$(BUILDTAGS)' -o dl/ngrok_linux_arm64      ngrok/main/ngrok
-	GOOS=linux   GOARCH=arm   go build -tags '$(BUILDTAGS)' -o dl/ngrok_linux_arm        ngrok/main/ngrok
-	GOOS=darwin  GOARCH=arm64 go build -tags '$(BUILDTAGS)' -o dl/ngrok_darwin_arm64     ngrok/main/ngrok
-	GOOS=darwin  GOARCH=amd64 go build -tags '$(BUILDTAGS)' -o dl/ngrok_darwin_amd64     ngrok/main/ngrok
-	GOOS=windows GOARCH=amd64 go build -tags '$(BUILDTAGS)' -o dl/ngrok_windows_amd64.exe ngrok/main/ngrok
-	GOOS=windows GOARCH=arm64 go build -tags '$(BUILDTAGS)' -o dl/ngrok_windows_arm64.exe ngrok/main/ngrok
+	GOOS=linux   GOARCH=amd64 $(GO) build -tags '$(BUILDTAGS)' -o dl/ngrok_linux_amd64      ngrok/main/ngrok
+	GOOS=linux   GOARCH=arm64 $(GO) build -tags '$(BUILDTAGS)' -o dl/ngrok_linux_arm64      ngrok/main/ngrok
+	GOOS=linux   GOARCH=arm   $(GO) build -tags '$(BUILDTAGS)' -o dl/ngrok_linux_arm        ngrok/main/ngrok
+	GOOS=darwin  GOARCH=arm64 $(GO) build -tags '$(BUILDTAGS)' -o dl/ngrok_darwin_arm64     ngrok/main/ngrok
+	GOOS=darwin  GOARCH=amd64 $(GO) build -tags '$(BUILDTAGS)' -o dl/ngrok_darwin_amd64     ngrok/main/ngrok
+	GOOS=windows GOARCH=amd64 $(GO) build -tags '$(BUILDTAGS)' -o dl/ngrok_windows_amd64.exe ngrok/main/ngrok
+	GOOS=windows GOARCH=arm64 $(GO) build -tags '$(BUILDTAGS)' -o dl/ngrok_windows_arm64.exe ngrok/main/ngrok
 
 release-all: fmt release-client release-server
 
 all: fmt client server
 
 clean:
-	go clean -i -r ngrok/...
+	$(GO) clean -i -r ngrok/...
 	rm -rf src/ngrok/client/assets/ src/ngrok/server/assets/
 
 contributors:
