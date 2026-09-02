@@ -20,6 +20,8 @@ type Options struct {
 	webData      string
 	webAdminPass string
 	dlDir        string
+	webTlsCrt    string
+	webTlsKey    string
 }
 
 func parseArgs() *Options {
@@ -36,6 +38,8 @@ func parseArgs() *Options {
 	webData := flag.String("webData", "./ngrokd-dashboard.json", "Dashboard users/tunnels data file (JSON)")
 	webAdminPass := flag.String("webAdminPass", "", "Initial admin password for the dashboard (random one printed to log when empty and the data file is fresh)")
 	dlDir := flag.String("dlDir", "./dl", "Directory served at /dl/ for prebuilt client binaries")
+	webTlsCrt := flag.String("webTlsCrt", "", "Path to a TLS certificate file for the web dashboard (enables HTTPS)")
+	webTlsKey := flag.String("webTlsKey", "", "Path to a TLS key file for the web dashboard (enables HTTPS)")
 	flag.Parse()
 
 	return &Options{
@@ -53,5 +57,7 @@ func parseArgs() *Options {
 		webData:      *webData,
 		webAdminPass: *webAdminPass,
 		dlDir:        *dlDir,
+		webTlsCrt:    *webTlsCrt,
+		webTlsKey:    *webTlsKey,
 	}
 }

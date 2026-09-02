@@ -92,7 +92,7 @@ func (s *Sessions) sign(payload string) string {
 }
 
 // Issue sets a fresh session cookie for the username.
-func (s *Sessions) Issue(w http.ResponseWriter, username string) {
+func (s *Sessions) Issue(w http.ResponseWriter, username string, secure bool) {
 	exp := time.Now().Add(sessionTTL).Unix()
 	payload := fmt.Sprintf("%s|%d", username, exp)
 	value := payload + "|" + s.sign(payload)
@@ -101,6 +101,7 @@ func (s *Sessions) Issue(w http.ResponseWriter, username string) {
 		Value:    value,
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(sessionTTL.Seconds()),
 	})

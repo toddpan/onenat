@@ -24,10 +24,15 @@ type Configuration struct {
 	AuthToken          string                          `yaml:"auth_token,omitempty"`
 	Tunnels            map[string]*TunnelConfiguration `yaml:"tunnels,omitempty"`
 	LogTo              string                          `yaml:"-"`
-	// Managed mode: the dashboard pushes the tunnel set over the control
-	// channel; nothing below but server/token matters locally.
-	Managed  bool   `yaml:"-"`
-	TunnelID string `yaml:"tunnel_id,omitempty"`
+		// Managed mode: the dashboard pushes the tunnel set over the control
+		// channel; nothing below but server/token matters locally.
+		Managed  bool   `yaml:"-"`
+		TunnelID string `yaml:"tunnel_id,omitempty"`
+
+		// AllowRemoteTargets controls whether the client will dial non-loopback
+		// private targets (e.g. LAN IPs). Defaults to false (loopback-only)
+		// as a defense-in-depth against SSRF / unauthorized LAN pivot.
+		AllowRemoteTargets bool `yaml:"allow_remote_targets,omitempty"`
 
 	// AI remote-agent support
 	// Gate enables the client-side access gateway on tcp tunnels:
@@ -178,6 +183,9 @@ func LoadConfiguration(opts *Options) (config *Configuration, err error) {
 	// override configuration with command-line options
 	config.LogTo = opts.logto
 	config.Path = configPath
+	if opts.allowRemoteTargets {
+		config.AllowRemoteTargets = true
+	}
 	if opts.config != "" || configHasContent(config) {
 		// config-file mode only when the user gave a file or the default
 		// file exists with content; agent mode skips this entirely

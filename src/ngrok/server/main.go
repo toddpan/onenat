@@ -57,6 +57,17 @@ func NewProxy(pxyConn conn.Conn, regPxy *msg.RegProxy) {
 		panic("No client found for identifier: " + regPxy.ClientId)
 	}
 
+	// For dashboard-managed tunnels, enforce single-use token and HMAC signature
+	// to prevent proxy connection spoofing/hijacking
+	if ctl.dashTunnelID != "" && dash != nil {
+		tun := dash.Store().TunnelByID(ctl.dashTunnelID)
+		if tun == nil || !ctl.VerifyAndConsumeProxyToken(regPxy.Token, regPxy.Sig, tun.Key) {
+			pxyConn.Error("Rejected unauthorized proxy connection for %s: invalid or expired proxy token/sig", regPxy.ClientId)
+			pxyConn.Close()
+			return
+		}
+	}
+
 	ctl.RegisterProxy(pxyConn)
 }
 
@@ -170,12 +181,14 @@ func startDashboard() error {
 		tunnelClientAddr = fmt.Sprintf("%s:%s", opts.domain, port)
 	}
 
+	isHttps := opts.webTlsCrt != "" && opts.webTlsKey != ""
 	d, err := dashboard.New(dashboard.Options{
-		Domain:     opts.domain,
-		TunnelAddr: tunnelClientAddr,
-		DataPath:   opts.webData,
-		DlDir:      opts.dlDir,
-		AdminPass:  opts.webAdminPass,
+		Domain:       opts.domain,
+		TunnelAddr:   tunnelClientAddr,
+		DataPath:     opts.webData,
+		DlDir:        opts.dlDir,
+		AdminPass:    opts.webAdminPass,
+		SecureCookie: isHttps,
 	})
 	if err != nil {
 		return err
@@ -205,10 +218,17 @@ func startDashboard() error {
 		fmt.Println("=============================================")
 	}
 
-	log.Info("Starting web management console on %s (data: %s)", opts.webAddr, opts.webData)
+	log.Info("Starting web management console on %s (data: %s, https: %v)", opts.webAddr, opts.webData, isHttps)
 	ln, err := net.Listen("tcp", opts.webAddr)
 	if err != nil {
 		return fmt.Errorf("webAddr %s: %v", opts.webAddr, err)
+	}
+	if isHttps {
+		webTlsCfg, terr := LoadTLSConfig(opts.webTlsCrt, opts.webTlsKey)
+		if terr != nil {
+			return fmt.Errorf("web TLS config error: %v", terr)
+		}
+		ln = tls.NewListener(ln, webTlsCfg)
 	}
 	go func() {
 		srv := &http.Server{

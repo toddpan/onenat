@@ -36,6 +36,7 @@ if /I "%WEB_PORT%"=="off" (
   echo 管理后台: 关闭
 ) else (
   set ARGS=%ARGS% -webAddr :%WEB_PORT%
+  if defined WEB_TLS_CERT if defined WEB_TLS_KEY set ARGS=%ARGS% -webTlsCrt %WEB_TLS_CERT% -webTlsKey %WEB_TLS_KEY%
 )
 
 if /I "%HTTP_PORT%"=="off" (

@@ -1,7 +1,10 @@
 package client
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/hex"
 	"fmt"
 	metrics "github.com/rcrowley/go-metrics"
 	"io/ioutil"
@@ -351,7 +354,8 @@ func (c *ClientModel) control() {
 
 		switch m := rawMsg.(type) {
 		case *msg.ReqProxy:
-			c.ctl.Go(c.proxy)
+			token := m.Token
+			c.ctl.Go(func() { c.proxy(token) })
 
 		case *msg.Pong:
 			atomic.StoreInt64(&lastPong, time.Now().UnixNano())
@@ -572,8 +576,23 @@ func (c *ClientModel) onCodeRotate(code string, expires time.Time) {
 	c.publishManual()
 }
 
+func isTargetAllowed(addr string, allowRemote bool) bool {
+	if allowRemote {
+		return true
+	}
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	h := strings.ToLower(strings.TrimSpace(host))
+	if h == "" || h == "127.0.0.1" || h == "localhost" || h == "::1" || strings.HasPrefix(h, "127.") {
+		return true
+	}
+	return false
+}
+
 // Establishes and manages a tunnel proxy connection with the server
-func (c *ClientModel) proxy() {
+func (c *ClientModel) proxy(token string) {
 	var (
 		remoteConn conn.Conn
 		err        error
@@ -591,7 +610,14 @@ func (c *ClientModel) proxy() {
 	}
 	defer remoteConn.Close()
 
-	err = msg.WriteMsg(remoteConn, &msg.RegProxy{ClientId: c.id})
+	var sig string
+	if token != "" && c.authToken != "" {
+		mac := hmac.New(sha256.New, []byte(c.authToken))
+		mac.Write([]byte(token))
+		sig = hex.EncodeToString(mac.Sum(nil))
+	}
+
+	err = msg.WriteMsg(remoteConn, &msg.RegProxy{ClientId: c.id, Token: token, Sig: sig})
 	if err != nil {
 		remoteConn.Error("Failed to write RegProxy: %v", err)
 		return
@@ -607,6 +633,12 @@ func (c *ClientModel) proxy() {
 	tunnel, ok := c.tunnels[startPxy.Url]
 	if !ok {
 		remoteConn.Error("Couldn't find tunnel for proxy: %s", startPxy.Url)
+		return
+	}
+
+	// defense-in-depth: ensure client config permits dialing this target
+	if !isTargetAllowed(tunnel.LocalAddr, c.config.AllowRemoteTargets) {
+		remoteConn.Error("Blocked dial to non-loopback target %s: remote targets disabled by client config", tunnel.LocalAddr)
 		return
 	}
 

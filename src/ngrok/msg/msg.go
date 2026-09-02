@@ -99,13 +99,19 @@ type NewTunnel struct {
 // When the server wants to initiate a new tunneled connection, it sends
 // this message over the control channel to the client. When a client receives
 // this message, it must initiate a new proxy connection to the server.
+// Token is a single-use random nonce for proxy connection authentication.
 type ReqProxy struct {
+	Token string `json:"token,omitempty"`
 }
 
 // After a client receives a ReqProxy message, it opens a new
 // connection to the server and sends a RegProxy message.
+// For managed tunnels, Sig is HMAC-SHA256(tunnel.Key, Token) to prevent
+// unauthorized proxy connection injection.
 type RegProxy struct {
 	ClientId string
+	Token    string `json:"token,omitempty"`
+	Sig      string `json:"sig,omitempty"`
 }
 
 // This message is sent by the server to the client over a *proxy* connection before it

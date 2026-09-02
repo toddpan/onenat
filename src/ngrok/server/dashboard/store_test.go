@@ -133,6 +133,42 @@ func TestTunnelAndMappingCRUD(t *testing.T) {
 	}
 }
 
+func TestSecurityPoliciesAndBoundaries(t *testing.T) {
+	s := tempStore(t)
+	s.BootstrapAdmin("adminpass")
+	u1, _ := s.CreateUser("user1", "pass1234", "user")
+	u2, _ := s.CreateUser("user2", "pass1234", "user")
+
+	t1 := s.CreateTunnel(NewTunnelInput{Name: "t1", OwnerID: u1.ID})
+	t2 := s.CreateTunnel(NewTunnelInput{Name: "t2", OwnerID: u2.ID})
+
+	// 1. 默认仅允许 127.0.0.1/localhost, 禁止随意拨号局域网 IP
+	if _, err := s.AddMapping(t1.ID, MappingInput{Proto: "tcp", LocalIP: "192.168.1.100", LocalPort: 80}); err == nil {
+		t.Fatal("default should reject remote LAN IP")
+	}
+	if _, err := s.AddMapping(t1.ID, MappingInput{Proto: "tcp", LocalIP: "169.254.169.254", LocalPort: 80}); err == nil {
+		t.Fatal("default should reject cloud metadata IP")
+	}
+	// 开启 allow_remote_targets 后允许
+	s.UpdateTunnelMeta(t1.ID, t1.Name, t1.Note, t1.Locked, true, t1.OwnerID)
+	if _, err := s.AddMapping(t1.ID, MappingInput{Proto: "tcp", LocalIP: "192.168.1.100", LocalPort: 80}); err != nil {
+		t.Fatalf("should allow remote target when enabled: %v", err)
+	}
+
+	// 2. 特权端口保护 (< 1024)
+	if _, err := s.AddMapping(t1.ID, MappingInput{Proto: "tcp", LocalPort: 80, RemotePort: 80}); err == nil {
+		t.Fatal("should reject privileged port < 1024")
+	}
+
+	// 3. 子域名多租户防劫持 (u1 占用的 subdomain, u2 无法抢占)
+	if _, err := s.AddMapping(t1.ID, MappingInput{Proto: "http", LocalPort: 8080, Subdomain: "corp-app"}); err != nil {
+		t.Fatalf("u1 should add subdomain: %v", err)
+	}
+	if _, err := s.AddMapping(t2.ID, MappingInput{Proto: "http", LocalPort: 8080, Subdomain: "corp-app"}); err == nil {
+		t.Fatal("u2 should not steal u1's subdomain")
+	}
+}
+
 func TestStorePersistsAcrossReload(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "dash.json")
