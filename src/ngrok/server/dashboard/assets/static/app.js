@@ -1,6 +1,30 @@
 // oneNat dashboard front-end interactions (vanilla JS, no dependencies).
 /* global PAGE */
 
+// ---------- mobile nav helpers ----------
+
+function toggleMobileNav(ev) {
+  if (ev) ev.stopPropagation();
+  const sidebar = document.getElementById('sidebar');
+  const backdrop = document.getElementById('nav-backdrop');
+  if (sidebar) sidebar.classList.toggle('open');
+  if (backdrop) backdrop.classList.toggle('active');
+}
+
+function closeMobileNav() {
+  const sidebar = document.getElementById('sidebar');
+  const backdrop = document.getElementById('nav-backdrop');
+  if (sidebar) sidebar.classList.remove('open');
+  if (backdrop) backdrop.classList.remove('active');
+}
+
+// 点击导航链接后自动关闭移动端菜单
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.side-link').forEach(link => {
+    link.addEventListener('click', closeMobileNav);
+  });
+});
+
 // ---------- tiny helpers ----------
 
 async function api(method, url, body) {

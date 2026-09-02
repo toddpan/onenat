@@ -52,27 +52,29 @@
 
     <div class="card">
       <div class="card-title">端口映射</div>
-      <table class="tbl">
-        <thead><tr><th>本地服务</th><th>公网连接</th><th>备注</th><th>状态</th>{{if .IsAdmin}}<th>操作</th>{{end}}</tr></thead>
-        <tbody>
-        {{range .T.Mappings}}
-          <tr>
-            <td class="mono">{{.LocalIP}}:{{.LocalPort}}</td>
-            <td class="mono">{{if .PublicURL}}{{.PublicURL}}{{else}}—{{end}}</td>
-            <td>{{.Note}}</td>
-            <td>{{if .Error}}<span class="badge badge-err" title="{{.Error}}">错误</span>
-                {{else if .PublicURL}}<span class="badge badge-on">已开通</span>
-                {{else}}<span class="badge badge-off">等待客户端</span>{{end}}</td>
-            {{if $.IsAdmin}}<td>
-              <a class="mini" onclick="showMappingModal('{{.ID}}')">编辑</a>
-              <a class="mini danger" onclick="delMapping('{{.ID}}')">删除</a>
-            </td>{{end}}
-          </tr>
-        {{else}}
-          <tr><td colspan="5" class="empty">暂无端口映射{{if $.IsAdmin}} — 点击「添加端口」{{end}}</td></tr>
-        {{end}}
-        </tbody>
-      </table>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>本地服务</th><th>公网连接</th><th>备注</th><th>状态</th>{{if .IsAdmin}}<th>操作</th>{{end}}</tr></thead>
+          <tbody>
+          {{range .T.Mappings}}
+            <tr>
+              <td class="mono">{{.LocalIP}}:{{.LocalPort}}</td>
+              <td class="mono">{{if .PublicURL}}{{.PublicURL}}{{else}}—{{end}}</td>
+              <td>{{.Note}}</td>
+              <td>{{if .Error}}<span class="badge badge-err" title="{{.Error}}">错误</span>
+                  {{else if .PublicURL}}<span class="badge badge-on">已开通</span>
+                  {{else}}<span class="badge badge-off">等待客户端</span>{{end}}</td>
+              {{if $.IsAdmin}}<td>
+                <a class="mini" onclick="showMappingModal('{{.ID}}')">编辑</a>
+                <a class="mini danger" onclick="delMapping('{{.ID}}')">删除</a>
+              </td>{{end}}
+            </tr>
+          {{else}}
+            <tr><td colspan="5" class="empty">暂无端口映射{{if $.IsAdmin}} — 点击「添加端口」{{end}}</td></tr>
+          {{end}}
+          </tbody>
+        </table>
+      </div>
       {{if .IsAdmin}}<div class="card-foot"><button class="btn btn-sm" onclick="showMappingModal(null)">＋ 添加端口</button></div>{{end}}
     </div>
 
@@ -106,21 +108,23 @@
 
     <div class="card">
       <div class="card-title">最近客户端连接记录</div>
-      <table class="tbl">
-        <thead><tr><th>时间</th><th>来源地址</th><th>公网连接</th><th>入/出流量</th></tr></thead>
-        <tbody>
-        {{range .ConnRows}}
-          <tr>
-            <td class="muted">{{fmtTime .Time}}</td>
-            <td class="mono">{{.ClientAddr}}</td>
-            <td class="mono">{{.PublicURL}}</td>
-            <td class="mono">{{fmtBytes .BytesIn}} / {{fmtBytes .BytesOut}}</td>
-          </tr>
-        {{else}}
-          <tr><td colspan="4" class="empty">暂无连接记录</td></tr>
-        {{end}}
-        </tbody>
-      </table>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>时间</th><th>来源地址</th><th>公网连接</th><th>入/出流量</th></tr></thead>
+          <tbody>
+          {{range .ConnRows}}
+            <tr>
+              <td class="muted">{{fmtTime .Time}}</td>
+              <td class="mono">{{.ClientAddr}}</td>
+              <td class="mono">{{.PublicURL}}</td>
+              <td class="mono">{{fmtBytes .BytesIn}} / {{fmtBytes .BytesOut}}</td>
+            </tr>
+          {{else}}
+            <tr><td colspan="4" class="empty">暂无连接记录</td></tr>
+          {{end}}
+          </tbody>
+        </table>
+      </div>
     </div>
 
     <div class="card">

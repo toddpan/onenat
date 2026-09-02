@@ -11,28 +11,30 @@
   <div class="page-head"><h1>用户管理</h1></div>
 
   <div class="card">
-    <table class="tbl">
-      <thead><tr><th>用户名</th><th>角色</th><th>名下隧道</th><th>创建时间</th><th>操作</th></tr></thead>
-      <tbody>
-      {{range .Users}}
-        <tr>
-          <td><b>{{.Username}}</b>{{if eq .Username $.User.Username}} <span class="chip">我</span>{{end}}</td>
-          <td>
-            <select onchange="setUserRole('{{.ID}}', this.value)">
-              <option value="admin" {{if eq .Role "admin"}}selected{{end}}>管理员</option>
-              <option value="user" {{if eq .Role "user"}}selected{{end}}>普通用户</option>
-            </select>
-          </td>
-          <td class="muted">{{index $.TunnelCounts .Username}}</td>
-          <td class="muted">{{fmtTime .CreatedAt}}</td>
-          <td>
-            <a class="mini" onclick="resetUserPwd('{{.Username}}')">重置密码</a>
-            <a class="mini danger" onclick="delUser('{{.Username}}')">删除</a>
-          </td>
-        </tr>
-      {{end}}
-      </tbody>
-    </table>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <thead><tr><th>用户名</th><th>角色</th><th>名下隧道</th><th>创建时间</th><th>操作</th></tr></thead>
+        <tbody>
+        {{range .Users}}
+          <tr>
+            <td><b>{{.Username}}</b>{{if eq .Username $.User.Username}} <span class="chip">我</span>{{end}}</td>
+            <td>
+              <select onchange="setUserRole('{{.ID}}', this.value)">
+                <option value="admin" {{if eq .Role "admin"}}selected{{end}}>管理员</option>
+                <option value="user" {{if eq .Role "user"}}selected{{end}}>普通用户</option>
+              </select>
+            </td>
+            <td class="muted">{{index $.TunnelCounts .Username}}</td>
+            <td class="muted">{{fmtTime .CreatedAt}}</td>
+            <td>
+              <a class="mini" onclick="resetUserPwd('{{.Username}}')">重置密码</a>
+              <a class="mini danger" onclick="delUser('{{.Username}}')">删除</a>
+            </td>
+          </tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
   </div>
 
   <div class="card">
