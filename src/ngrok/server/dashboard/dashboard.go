@@ -104,35 +104,82 @@ func (d *Dashboard) Bootstrap() (username, password string, created bool) {
 	return d.store.BootstrapAdmin(d.opts.AdminPass)
 }
 
-// SeedBuiltinApps precreates the built-in app catalog for a fresh install:
-// an "SSH Server" app (owned by the initial admin) with the platform's
-// full-featured SSH skill. Idempotent — skips when the app already exists.
+// builtinAppDef describes one app the platform precreates for every install.
+type builtinAppDef struct {
+	Name        string
+	Type        string
+	Description string
+	InternalURL string
+	// SkillName is the skill file the app is born with. When SkillAsset is
+	// non-empty the content comes from assets/builtin/<SkillAsset> (platform
+	// shipped); otherwise the type skeleton scaffold generates it.
+	SkillName string
+	SkillExt  string
+	SkillAsset string
+}
+
+// builtinApps is the platform's pre-built app catalog.
+var builtinApps = []builtinAppDef{
+	{
+		Name:        "SSH Server",
+		Type:        "ssh",
+		Description: "内置应用: 通过平台隧道入口连接 SSH 服务器。绑定映射后即可在资源列表获取入口; 请在 Web 端补充真实主机信息与凭证",
+	},
+	{
+		Name:        "DSH",
+		Type:        "http-api",
+		Description: "内置应用: DeepSeek Harness (DSH) Web Service API — 工作区/会话/模型管理与 SSE 流式对话。技能文件即 DSH 接口使用说明 (Base URL 默认 http://127.0.0.1:3080/api/v1)",
+		InternalURL: "http://127.0.0.1:3080",
+		SkillName:   "dsh-web-service",
+		SkillExt:    ".md",
+		SkillAsset:  "dsh-web-service.md",
+	},
+}
+
+// SeedBuiltinApps precreates the built-in app catalog, owned by the initial
+// admin. Idempotent per app — existing installs gain missing builtins on
+// restart (called unconditionally from server startup).
 func (d *Dashboard) SeedBuiltinApps() {
 	u := d.store.UserByName("admin")
 	if u == nil {
 		return
 	}
+	have := map[string]bool{}
 	for _, a := range d.store.Apps(u.ID, true) {
-		if a.Name == "SSH Server" {
-			return
+		have[a.Name] = true
+	}
+	for _, def := range builtinApps {
+		if have[def.Name] {
+			continue
 		}
+		a, err := d.store.CreateApp(AppInput{
+			Name:        def.Name,
+			Type:        def.Type,
+			OwnerID:     u.ID,
+			Description: def.Description,
+			InternalURL: def.InternalURL,
+			Auth:        AppAuthInput{AuthType: "none"},
+		})
+		if err != nil {
+			log.Warn("oneNat dashboard: seed builtin app %q failed: %v", def.Name, err)
+			continue
+		}
+		if def.SkillAsset != "" {
+			content, rerr := assetsFS.ReadFile("assets/builtin/" + def.SkillAsset)
+			if rerr != nil {
+				log.Warn("oneNat dashboard: builtin skill asset missing for %q: %v", def.Name, rerr)
+				continue
+			}
+			if werr := d.writeNewSkill(a.ID, def.SkillName, def.SkillExt, content, u.Username); werr != nil {
+				log.Warn("oneNat dashboard: seed builtin skill for %q failed: %v", def.Name, werr)
+				continue
+			}
+		} else if serr := d.scaffoldSkill(a, u.Username); serr != nil {
+			log.Warn("oneNat dashboard: seed scaffold skill for %q failed: %v", def.Name, serr)
+			continue
+		}
+		log.Info("oneNat dashboard: seeded builtin app %q (%s)", def.Name, a.ID)
 	}
-	a, err := d.store.CreateApp(AppInput{
-		Name:        "SSH Server",
-		Type:        "ssh",
-		OwnerID:     u.ID,
-		Description: "内置应用: 通过平台隧道入口连接 SSH 服务器。绑定映射后即可在资源列表获取入口; 请在 Web 端补充真实主机信息与凭证",
-		Auth:        AppAuthInput{AuthType: "none"},
-	})
-	if err != nil {
-		log.Warn("oneNat dashboard: seed builtin SSH Server app failed: %v", err)
-		return
-	}
-	if err := d.scaffoldSkill(a, u.Username); err != nil {
-		log.Warn("oneNat dashboard: seed builtin SSH skill failed: %v", err)
-		return
-	}
-	log.Info("oneNat dashboard: seeded builtin app \"SSH Server\" (%s) with SSH skill", a.ID)
 }
 
 // Store exposes the underlying store (used by the server package at startup).
