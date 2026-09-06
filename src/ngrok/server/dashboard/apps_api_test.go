@@ -26,7 +26,8 @@ func newTestDashboard(t *testing.T) (*Dashboard, *Store) {
 	return d, d.store
 }
 
-// TestSeedBuiltinSSHApp — 全新安装必须预置「SSH Server」应用并带完整 SSH 技能;
+// TestSeedBuiltinSSHApp — 全新安装必须预置内置应用目录:
+// 「SSH Server」(带完整 SSH 技能) 与「DSH」(带 DSH 接口技能);
 // 重复调用幂等。
 func TestSeedBuiltinSSHApp(t *testing.T) {
 	d, s := newTestDashboard(t)
@@ -35,12 +36,11 @@ func TestSeedBuiltinSSHApp(t *testing.T) {
 	d.SeedBuiltinApps()
 
 	apps := s.Apps(u.ID, true)
-	var ssh *App
+	byName := map[string]*App{}
 	for _, a := range apps {
-		if a.Name == "SSH Server" {
-			ssh = a
-		}
+		byName[a.Name] = a
 	}
+	ssh := byName["SSH Server"]
 	if ssh == nil {
 		t.Fatal("builtin SSH Server app must be seeded")
 	}
@@ -61,13 +61,34 @@ func TestSeedBuiltinSSHApp(t *testing.T) {
 			t.Fatalf("seeded SSH skill missing %q", want)
 		}
 	}
-	// 幂等: 再次播种不产生第二个
+
+	// DSH 应用: 平台烘入的 DSH Web Service 接口技能
+	dsh := byName["DSH"]
+	if dsh == nil {
+		t.Fatal("builtin DSH app must be seeded")
+	}
+	if dsh.Type != "http-api" || dsh.InternalURL != "http://127.0.0.1:3080" {
+		t.Fatalf("seeded DSH app wrong: %+v", dsh)
+	}
+	dshSkills := s.SkillFiles(dsh.ID)
+	if len(dshSkills) != 1 || dshSkills[0].Name != "dsh-web-service" || dshSkills[0].Ext != ".md" {
+		t.Fatalf("DSH app must carry dsh-web-service.md, got %+v", dshSkills)
+	}
+	dshContent, err := ReadSkillFile(d.skillsDirResolved(), dsh.ID, dshSkills[0].ID, dshSkills[0].Ext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"/api/v1", "chat/completions", "system/status", "prompt-stream", "工作区管理"} {
+		if !strings.Contains(string(dshContent), want) {
+			t.Fatalf("seeded DSH skill missing %q", want)
+		}
+	}
+
+	// 幂等: 再次播种不产生重复
 	d.SeedBuiltinApps()
-	if n := len(s.Apps(u.ID, true)); n != 1 {
+	if n := len(s.Apps(u.ID, true)); n != 2 {
 		t.Fatalf("seed must be idempotent, got %d apps", n)
 	}
-	// 已有数据的旧安装 (非空 users): Bootstrap 返回 created=false, 不重复播种
-	// (该路径由 server.Main 的 created 分支保证, 此处验证 Seed 本身的幂等即可)
 }
 
 func loginAs(t *testing.T, d *Dashboard, username string) *http.Cookie {
