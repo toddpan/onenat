@@ -1,0 +1,58 @@
+{{define "page_apps"}}<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>应用管理 · oneNat 管理后台</title>
+<link rel="stylesheet" href="/static/style.css?v={{staticV}}">
+</head>
+<body>
+{{template "nav" .}}
+<main class="main">
+  <div class="page-head">
+    <h1>应用管理</h1>
+    <button class="btn btn-primary" onclick="showCreateApp()">＋ 注册新应用</button>
+  </div>
+
+  <div class="hint" style="margin-bottom:18px">
+    ⓘ 应用 = 内网系统的平台登记 (名称 + 访问凭证 + 技能文件)。端口映射必须关联一个应用；
+    AI 通过资源列表发现应用后，下载技能文件即可学会如何使用该系统。
+  </div>
+
+  <div class="card">
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <thead><tr>
+          <th>应用名称</th><th>类型</th><th>认证</th><th>技能</th><th>绑定端口</th><th>归属</th><th>更新时间</th><th>详情</th>
+        </tr></thead>
+        <tbody>
+        {{range .Apps}}
+          <tr>
+            <td><a class="tname" href="/apps/{{.ID}}">{{.Name}}</a></td>
+            <td><span class="chip">{{.Type}}</span></td>
+            <td class="muted">{{.AuthType}}{{if .HasPassword}} · 🔒{{end}}{{if .HasApiKey}} · 🔑{{end}}</td>
+            <td>{{.SkillCount}} 个</td>
+            <td>{{.MappingCount}} 个</td>
+            <td>{{.OwnerName}}</td>
+            <td class="muted">{{fmtTime .UpdatedAt}}</td>
+            <td><a class="arrow" href="/apps/{{.ID}}">›</a></td>
+          </tr>
+        {{else}}
+          <tr><td colspan="8" class="empty">还没有应用 — 点击右上角「注册新应用」，把内网系统接入平台</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<div id="modal" class="modal hidden" onclick="if(event.target===this)hideModal()">
+  <div class="modal-box" id="modal-box"></div>
+</div>
+<div id="toast" class="toast hidden"></div>
+<script>
+window.PAGE={role:"{{if .IsAdmin}}admin{{else}}user{{end}}",page:"apps"};
+</script>
+<script src="/static/app.js?v={{staticV}}"></script>
+<script src="/static/apps.js?v={{staticV}}"></script>
+</body>
+</html>{{end}}

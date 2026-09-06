@@ -32,6 +32,7 @@ type Mapping struct {
 	RemotePort int    `json:"remote_port"` // tcp only; 0 = auto
 	Subdomain  string `json:"subdomain"`   // http/https only
 	Note       string `json:"note"`
+	AppID      string `json:"app_id,omitempty"` // 关联应用 (app-*); 新建映射必选
 }
 
 type Tunnel struct {
@@ -56,6 +57,52 @@ type ApiKey struct {
 	OwnerID    string     `json:"owner_id"`
 	CreatedAt  time.Time  `json:"created_at"`
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+	// AppScopes 限定该 KEY 可见的应用 (app-* id 列表); 空 = 归属用户全部
+	// 应用 (向后兼容既有 KEY)。
+	AppScopes []string `json:"app_scopes,omitempty"`
+	// CanReadCred 控制能否经 /api/v1/apps/:id/credentials 读取应用上游
+	// 凭证明文; 默认 false (AI 只知道"需要认证", 不知道凭证本身)。
+	CanReadCred bool `json:"can_read_cred,omitempty"`
+}
+
+// App 应用实体: 一个内网系统在平台侧的登记 (KB API / SSH / 内部 Web ...)。
+// 端口映射通过 Mapping.AppID 挂到应用下; AI 经由应用获得入口 + 技能 + 认证方式。
+type App struct {
+	ID          string    `json:"id"`      // "app-" + 随机串, 防枚举
+	Name        string    `json:"name"`    // "KB API"
+	Type        string    `json:"type"`    // ssh | http-api | web | database | custom
+	Description string    `json:"description"` // 一句话描述, 会展示给 AI
+	OwnerID     string    `json:"owner_id"`
+	InternalURL string    `json:"internal_url,omitempty"` // 内网原始地址, 纯描述性
+	Auth        AppAuth   `json:"auth"`
+	Tags        []string  `json:"tags,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// AppAuth 应用上游访问凭证: 密码 / API KEY 加密落盘 (AES-256-GCM, crypto.go),
+// 用户名低敏明文; 永不以明文写日志或进 resources 接口。
+type AppAuth struct {
+	AuthType     string            `json:"auth_type"` // none | basic | bearer | header | custom
+	Username     string            `json:"username,omitempty"`
+	PasswordEnc  string            `json:"password_enc,omitempty"` // "enc:v1:..." 加密
+	ApiKeyEnc    string            `json:"api_key_enc,omitempty"`  // 应用自身的 API KEY, 加密
+	ExtraHeaders map[string]string `json:"extra_headers,omitempty"` // 自定义认证头, 值逐条加密
+}
+
+// SkillFile 技能文件元数据。内容存磁盘 (<skillsDir>/<appID>/<skillID><ext>),
+// 与用户输入的展示名解耦 — 从根本上杜绝路径穿越与同名冲突。
+type SkillFile struct {
+	ID        string    `json:"id"` // "sk-" + 8位随机
+	AppID     string    `json:"app_id"`
+	Name      string    `json:"name"` // 展示名 "kb-api.md"
+	Ext       string    `json:"ext"`  // .md .txt .yaml .yml .json
+	Size      int64     `json:"size"`
+	SHA256    string    `json:"sha256"`
+	Version   int       `json:"version"` // 每次修改 +1
+	UpdatedBy string    `json:"updated_by"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type settings struct {
@@ -63,16 +110,27 @@ type settings struct {
 }
 
 type storeFile struct {
-	Settings settings          `json:"settings"`
-	Users    []*User           `json:"users"`
-	Tunnels  []*Tunnel         `json:"tunnels"`
-	ApiKeys  []*ApiKey         `json:"api_keys,omitempty"`
+	Settings settings   `json:"settings"`
+	Users    []*User    `json:"users"`
+	Tunnels  []*Tunnel  `json:"tunnels"`
+	ApiKeys  []*ApiKey  `json:"api_keys,omitempty"`
+	Apps     []*App     `json:"apps,omitempty"`
+	Skills   []*SkillFile `json:"skills,omitempty"`
 }
 
 type Store struct {
 	mu   sync.RWMutex
 	path string
 	data storeFile
+	// credKey 是应用凭证加密主密钥 (crypto.go), 在 New() 装配后注入。
+	credKey []byte
+}
+
+// SetCredentialKey injects the credential master key (called once at startup).
+func (s *Store) SetCredentialKey(key []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.credKey = key
 }
 
 // ---------- id / key generation ----------
@@ -435,6 +493,7 @@ type MappingInput struct {
 	RemotePort int
 	Subdomain  string
 	Note       string
+	AppID      string // 关联应用; 新建映射必填
 }
 
 func isLoopbackHost(host string) bool {
@@ -500,6 +559,23 @@ func (s *Store) checkSubdomainConflictLocked(tunnelID, subdomain string) error {
 	return nil
 }
 
+// validateAppBindingLocked 校验映射→应用绑定。空 AppID 在 store 层放行
+// (兼容存量数据/内部迁移); 「新建映射必选应用」由 API 层强制。非空时应用
+// 必须存在且归属隧道的同一用户 (所有权隔离; 纯控制面语义, 不影响数据面)。
+func (s *Store) validateAppBindingLocked(appID string, t *Tunnel) error {
+	if appID == "" {
+		return nil
+	}
+	app := s.appByIDLocked(appID)
+	if app == nil {
+		return fmt.Errorf("关联的应用不存在")
+	}
+	if app.OwnerID != t.OwnerID {
+		return fmt.Errorf("只能关联当前隧道归属用户名下的应用")
+	}
+	return nil
+}
+
 func (s *Store) AddMapping(tunnelID string, in MappingInput) (*Mapping, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -516,6 +592,9 @@ func (s *Store) AddMapping(tunnelID string, in MappingInput) (*Mapping, error) {
 	if err := s.checkSubdomainConflictLocked(tunnelID, in.Subdomain); err != nil {
 		return nil, err
 	}
+	if err := s.validateAppBindingLocked(in.AppID, t); err != nil {
+		return nil, err
+	}
 	m := &Mapping{
 		ID:         NewMappingID(),
 		Proto:      in.Proto,
@@ -524,6 +603,7 @@ func (s *Store) AddMapping(tunnelID string, in MappingInput) (*Mapping, error) {
 		RemotePort: in.RemotePort,
 		Subdomain:  in.Subdomain,
 		Note:       in.Note,
+		AppID:      in.AppID,
 	}
 	t.Mappings = append(t.Mappings, m)
 	return m, s.saveLocked()
@@ -542,6 +622,9 @@ func (s *Store) UpdateMapping(tunnelID, mappingID string, in MappingInput) error
 	if err := s.checkSubdomainConflictLocked(tunnelID, in.Subdomain); err != nil {
 		return err
 	}
+	if err := s.validateAppBindingLocked(in.AppID, t); err != nil {
+		return err
+	}
 	for _, m := range t.Mappings {
 		if m.ID == mappingID {
 			m.Proto = in.Proto
@@ -550,6 +633,7 @@ func (s *Store) UpdateMapping(tunnelID, mappingID string, in MappingInput) error
 			m.RemotePort = in.RemotePort
 			m.Subdomain = in.Subdomain
 			m.Note = in.Note
+			m.AppID = in.AppID
 			return s.saveLocked()
 		}
 	}

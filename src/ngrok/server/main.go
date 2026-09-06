@@ -189,6 +189,7 @@ func startDashboard() error {
 		DlDir:        opts.dlDir,
 		AdminPass:    opts.webAdminPass,
 		SecureCookie: isHttps,
+		SkillsDir:    opts.skillsDir,
 	})
 	if err != nil {
 		return err
@@ -216,6 +217,8 @@ func startDashboard() error {
 		fmt.Println("  初始密码: " + password)
 		fmt.Println("  (仅首次创建时打印, 请登录后尽快修改)")
 		fmt.Println("=============================================")
+		// 全新安装: 预置内置应用目录 (SSH Server + 平台预制 SSH 技能)
+		d.SeedBuiltinApps()
 	}
 
 	log.Info("Starting web management console on %s (data: %s, https: %v)", opts.webAddr, opts.webData, isHttps)

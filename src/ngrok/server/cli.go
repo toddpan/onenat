@@ -2,6 +2,7 @@ package server
 
 import (
 	"flag"
+	"os"
 )
 
 type Options struct {
@@ -22,6 +23,7 @@ type Options struct {
 	dlDir        string
 	webTlsCrt    string
 	webTlsKey    string
+	skillsDir    string
 }
 
 func parseArgs() *Options {
@@ -40,6 +42,7 @@ func parseArgs() *Options {
 	dlDir := flag.String("dlDir", "./dl", "Directory served at /dl/ for prebuilt client binaries")
 	webTlsCrt := flag.String("webTlsCrt", "", "Path to a TLS certificate file for the web dashboard (enables HTTPS)")
 	webTlsKey := flag.String("webTlsKey", "", "Path to a TLS key file for the web dashboard (enables HTTPS)")
+	skillsDir := flag.String("skillsDir", envOr("ONENAT_SKILLS_DIR", ""), "Directory holding application skill files (default: <webData dir>/skills; env ONENAT_SKILLS_DIR)")
 	flag.Parse()
 
 	return &Options{
@@ -59,5 +62,13 @@ func parseArgs() *Options {
 		dlDir:        *dlDir,
 		webTlsCrt:    *webTlsCrt,
 		webTlsKey:    *webTlsKey,
+		skillsDir:    *skillsDir,
 	}
+}
+
+func envOr(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
 }

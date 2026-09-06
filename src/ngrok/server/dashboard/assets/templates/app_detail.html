@@ -1,0 +1,125 @@
+{{define "page_app_detail"}}<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{.App.Name}} · oneNat 应用管理</title>
+<link rel="stylesheet" href="/static/style.css?v={{staticV}}">
+</head>
+<body>
+{{template "nav" .}}
+<main class="main">
+  <div class="page-head">
+    <h1>{{.App.Name}} <span class="chip">{{.App.Type}}</span></h1>
+    <div>
+      <button class="btn" onclick="editApp('{{.App.ID}}')">编辑</button>
+      <button class="btn btn-danger" onclick="deleteApp('{{.App.ID}}', '{{.App.Name}}')">删除</button>
+    </div>
+  </div>
+  {{if .App.Description}}<p class="muted" style="margin-bottom:16px">{{.App.Description}}</p>{{end}}
+
+  <div class="card">
+    <div class="card-title">基本信息</div>
+    <table class="kv">
+      <tr><td>应用 ID</td><td class="mono">{{.App.ID}}</td></tr>
+      <tr><td>归属用户</td><td>{{.App.OwnerName}}</td></tr>
+      <tr><td>内网地址</td><td class="mono">{{if .App.InternalURL}}{{.App.InternalURL}}{{else}}—{{end}}</td></tr>
+      <tr><td>创建 / 更新</td><td class="muted">{{fmtTime .App.CreatedAt}} / {{fmtTime .App.UpdatedAt}}</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="card-title">访问凭证 <span class="muted small">({{.App.AuthType}})</span></div>
+    <table class="kv">
+      <tr><td>用户名</td><td class="mono">{{if .App.Username}}{{.App.Username}}{{else}}—{{end}}</td></tr>
+      <tr><td>密码</td><td class="mono">{{if .App.HasPassword}}{{.App.PasswordMask}}{{else}}—{{end}}</td></tr>
+      <tr><td>API KEY</td><td class="mono">{{if .App.HasApiKey}}{{.App.ApiKeyMask}}{{else}}—{{end}}</td></tr>
+      {{if .App.ExtraKeys}}<tr><td>自定义头</td><td class="mono">{{range .App.ExtraKeys}}{{.}} {{end}}</td></tr>{{end}}
+    </table>
+    <div style="margin-top:10px">
+      <button class="btn" onclick="editAppCredential('{{.App.ID}}')">修改凭证</button>
+      <button class="btn" onclick="revealAppCredential('{{.App.ID}}')">查看明文</button>
+    </div>
+    <div class="hint small" style="margin-top:8px">查看明文会被记录到审计日志。凭证以 AES-256-GCM 加密存储, 后台只显示打码形态。</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">技能文件 <span class="muted small">(教 AI 怎么使用这个应用)</span></div>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <thead><tr><th>文件名</th><th>大小</th><th>版本</th><th>更新人</th><th>更新时间</th><th>操作</th></tr></thead>
+        <tbody>
+        {{range .Skills}}
+          <tr>
+            <td class="mono">{{.Name}}</td>
+            <td class="muted">{{fmtBytes .Size}}</td>
+            <td>v{{.Version}}</td>
+            <td>{{.UpdatedBy}}</td>
+            <td class="muted">{{fmtTime .UpdatedAt}}</td>
+            <td>
+              <a class="mini" onclick="window.open('/api/apps/{{$.App.ID}}/skills/{{.ID}}/download')">下载</a>
+              <a class="mini" onclick="editSkill('{{$.App.ID}}', '{{.ID}}', '{{.Name}}')">编辑</a>
+              <a class="mini danger" onclick="deleteSkill('{{$.App.ID}}', '{{.ID}}', '{{.Name}}')">删除</a>
+            </td>
+          </tr>
+        {{else}}
+          <tr><td colspan="6" class="empty">还没有技能文件 — 上传或新建一个 Markdown, 告诉 AI 这个应用怎么用</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+    <div style="margin-top:10px">
+      <button class="btn btn-primary" onclick="uploadSkill('{{.App.ID}}')">⬆ 上传技能文件</button>
+      <button class="btn" onclick="newSkill('{{.App.ID}}')">新建文本技能</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">绑定的端口映射</div>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <thead><tr><th>隧道</th><th>协议</th><th>公网入口</th><th>本地目标</th><th></th></tr></thead>
+        <tbody>
+        {{range .Bindings}}
+          <tr>
+            <td><a class="tname" href="/t/{{.TunnelID}}">{{.TunnelName}}</a></td>
+            <td><span class="chip">{{.Proto}}</span></td>
+            <td class="mono">{{.PublicPort}}</td>
+            <td class="mono muted">{{.LocalAddr}}</td>
+            <td><a class="arrow" href="/t/{{.TunnelID}}">›</a></td>
+          </tr>
+        {{else}}
+          <tr><td colspan="5" class="empty">还没有端口映射绑定此应用 — 在隧道详情里添加端口时选择它</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">AI 接入</div>
+    <div class="hint small" style="margin-bottom:8px">
+      把提示词发给任意 AI 助手, 它会自动下载技能文件并学会使用本应用。
+      提示词中需要包含你名下某个 API KEY (在「API 密钥」页创建)。
+    </div>
+    <pre class="cfg" id="app-ai-prompt" style="white-space:pre-wrap">{{.AIPrompt}}</pre>
+    <button class="btn btn-primary" onclick="showAppAIPrompt()">🔑 生成完整提示词 (选择 API KEY)</button>
+  </div>
+</main>
+
+<div id="modal" class="modal hidden" onclick="if(event.target===this)hideModal()">
+  <div class="modal-box" id="modal-box"></div>
+</div>
+<div id="toast" class="toast hidden"></div>
+<script>
+window.PAGE={
+  role:"{{if .IsAdmin}}admin{{else}}user{{end}}",
+  page:"app_detail",
+  appId:"{{.App.ID}}",
+  base: location.origin,
+  promptTemplate: {{toJSON .AIPrompt}}
+};
+</script>
+<script src="/static/app.js?v={{staticV}}"></script>
+<script src="/static/apps.js?v={{staticV}}"></script>
+</body>
+</html>{{end}}

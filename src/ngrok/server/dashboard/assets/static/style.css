@@ -334,3 +334,30 @@ pre.cfg {
     min-width: 150px;
   }
 }
+
+/* ---------- 应用管理 ---------- */
+.chip-app {
+  background: #e8f4fd;
+  color: #1a6fb5;
+  text-decoration: none;
+  cursor: pointer;
+}
+.chip-app:hover { background: #d3eafa; }
+.kv select, .modal-box select {
+  padding: 7px 10px;
+  border: 1px solid #d8dee6;
+  border-radius: 8px;
+  font-size: 14px;
+  background: #fff;
+}
+textarea.skill-editor {
+  width: 100%;
+  min-height: 300px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 10px;
+  border: 1px solid #d8dee6;
+  border-radius: 8px;
+  resize: vertical;
+}

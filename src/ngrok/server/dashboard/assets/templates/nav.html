@@ -11,6 +11,7 @@
 <aside class="sidebar" id="sidebar">
   <div class="brand desktop-brand"><span class="brand-dot">●</span> oneNat</div>
   <a href="/" class="side-link {{if eq .Page "tunnels"}}active{{end}}"><span class="ico">⇄</span>隧道</a>
+  <a href="/apps" class="side-link {{if eq .Page "apps"}}active{{end}}"><span class="ico">📦</span>应用</a>
   {{if .IsAdmin}}<a href="/users" class="side-link {{if eq .Page "users"}}active{{end}}"><span class="ico">☺</span>用户管理</a>{{end}}
   <a href="/keys" class="side-link {{if eq .Page "keys"}}active{{end}}"><span class="ico">🔑</span>API 密钥</a>
   <div class="side-foot">
