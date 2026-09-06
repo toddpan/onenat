@@ -49,7 +49,14 @@ type ResourceSkill struct {
 	URL  string `json:"url"`
 }
 
-func (d *Dashboard) resourceAppFor(base, appID string) *ResourceApp {
+// skillContentURL builds the direct-download URL for a skill file, baking the
+// caller's API key into the query string so the AI can fetch it with a plain
+// curl (no headers) as promised by the onenat skill document.
+func skillContentURL(base, appID, skillName, key string) string {
+	return fmt.Sprintf("%s/api/v1/apps/%s/skills/%s/content?key=%s", base, appID, skillName, key)
+}
+
+func (d *Dashboard) resourceAppFor(base, appID, key string) *ResourceApp {
 	a := d.store.AppByID(appID)
 	if a == nil {
 		return nil
@@ -63,7 +70,7 @@ func (d *Dashboard) resourceAppFor(base, appID string) *ResourceApp {
 		ra.Skills = append(ra.Skills, ResourceSkill{
 			Name: sk.Name,
 			Size: sk.Size,
-			URL:  fmt.Sprintf("%s/api/v1/apps/%s/skills/%s/content", base, a.ID, sk.Name),
+			URL:  skillContentURL(base, a.ID, sk.Name, key),
 		})
 	}
 	return ra
@@ -107,7 +114,7 @@ func (d *Dashboard) apiV1Apps(w http.ResponseWriter, r *http.Request) {
 		for _, sk := range d.store.SkillFiles(a.ID) {
 			e.Skills = append(e.Skills, ResourceSkill{
 				Name: sk.Name, Size: sk.Size,
-				URL: fmt.Sprintf("%s/api/v1/apps/%s/skills/%s/content", base, a.ID, sk.Name),
+				URL: skillContentURL(base, a.ID, sk.Name, k.Key),
 			})
 		}
 		out = append(out, e)

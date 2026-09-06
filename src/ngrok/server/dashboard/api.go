@@ -269,7 +269,7 @@ func (d *Dashboard) apiGetTunnel(w http.ResponseWriter, r *http.Request) {
 	}
 	rt := detail.Runtime
 	for _, m := range t.Mappings {
-		mv := MappingView{Mapping: m, PublicURL: rt.Active[m.ID], Error: rt.Errors[m.ID]}
+		mv := MappingView{Mapping: m, PublicURL: d.PublicEndpoint(m.ID, rt), Error: rt.Errors[m.ID]}
 		if m.AppID != "" {
 			if a := d.store.AppByID(m.AppID); a != nil {
 				mv.AppName = a.Name
@@ -645,7 +645,7 @@ type ResourceMapping struct {
 // fillAppViews resolves MappingView.AppName for UI rendering.
 func (d *Dashboard) fillAppViews(t *Tunnel, rt *RuntimeView, out *[]MappingView) {
 	for _, m := range t.Mappings {
-		mv := MappingView{Mapping: m, PublicURL: rt.Active[m.ID], Error: rt.Errors[m.ID]}
+		mv := MappingView{Mapping: m, PublicURL: d.PublicEndpoint(m.ID, rt), Error: rt.Errors[m.ID]}
 		if m.AppID != "" {
 			if a := d.store.AppByID(m.AppID); a != nil {
 				mv.AppName = a.Name
@@ -663,7 +663,7 @@ func (d *Dashboard) apiV1Resources(w http.ResponseWriter, r *http.Request) {
 		methodMismatch(w, r, http.MethodGet)
 		return
 	}
-	_, u, ok := d.userFromApiKey(r)
+	k, u, ok := d.userFromApiKey(r)
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "无效的 API KEY")
 		return
@@ -675,14 +675,14 @@ func (d *Dashboard) apiV1Resources(w http.ResponseWriter, r *http.Request) {
 		for _, m := range t.Mappings {
 			rm := ResourceMapping{
 				Proto:     m.Proto,
-				PublicURL: rt.Active[m.ID],
+				PublicURL: d.PublicEndpoint(m.ID, rt),
 				Local:     joinHostPort(m.LocalIP, m.LocalPort),
 				Note:      m.Note,
 				Error:     rt.Errors[m.ID],
 			}
 			if m.AppID != "" {
-				// 技能/应用元数据随映射一起下发; 凭证永不内嵌
-				rm.App = d.resourceAppFor(baseURL(r), m.AppID)
+				// 技能/应用元数据随映射一起下发 (技能 URL 烘入调用方 KEY, 免头直下); 凭证永不内嵌
+				rm.App = d.resourceAppFor(baseURL(r), m.AppID, k.Key)
 			}
 			view.Mappings = append(view.Mappings, rm)
 		}

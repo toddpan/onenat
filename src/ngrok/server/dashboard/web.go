@@ -259,7 +259,7 @@ func (d *Dashboard) tunnelDetail(t *Tunnel) *TunnelDetail {
 	}
 	rt := detail.Runtime
 	for _, m := range t.Mappings {
-		mv := MappingView{Mapping: m, PublicURL: rt.Active[m.ID], Error: rt.Errors[m.ID]}
+		mv := MappingView{Mapping: m, PublicURL: d.PublicEndpoint(m.ID, rt), Error: rt.Errors[m.ID]}
 		if m.AppID != "" {
 			if a := d.store.AppByID(m.AppID); a != nil {
 				mv.AppName = a.Name
