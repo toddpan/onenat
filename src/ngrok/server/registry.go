@@ -168,6 +168,22 @@ func (r *TunnelRegistry) Get(url string) *Tunnel {
 	return r.tunnels[url]
 }
 
+// PublicURLByMapping returns the REAL public endpoint the server is actually
+// listening on for a dashboard mapping (matched by dashMappingID). This is the
+// source of truth for the dashboard views: when a requested port could not be
+// bound and the server fell back to a random one, the registry holds the
+// actually-serving URL while cached/config values drift.
+func (r *TunnelRegistry) PublicURLByMapping(mappingID string) string {
+	r.RLock()
+	defer r.RUnlock()
+	for _, t := range r.tunnels {
+		if t != nil && t.dashMappingID == mappingID && t.url != "" {
+			return t.url
+		}
+	}
+	return ""
+}
+
 // ControlRegistry maps a client ID to Control structures
 type ControlRegistry struct {
 	controls map[string]*Control

@@ -341,6 +341,10 @@ RES=$(curl -s --max-time 5 -H "Authorization: Bearer $AK2" "$DASH/api/v1/resourc
 echo "$RES" | grep -q '"app"' && ok "resources 内嵌应用信息" || bad "resources 应用缺失"
 echo "$RES" | grep -q "kb-api.md" && ok "resources 内嵌技能下载链接" || bad "resources 技能缺失"
 echo "$RES" | grep -q "kbpass88" && bad "resources 泄露凭证!" || ok "resources 不含任何凭证"
+# 技能直链必须带 KEY (技能文档承诺"已带认证, 直接下载")
+SKURL=$(echo "$RES" | grep -o 'http[^"]*skills/kb-api.md/content?key=[^"]*' | head -1)
+SKCODE=$(curl -s -o /tmp/sk-dl.out -w '%{http_code}' --max-time 5 "$SKURL")
+[ "$SKCODE" = "200" ] && grep -q "v2" /tmp/sk-dl.out && ok "resources 技能直链带 KEY 且免头可下载" || bad "技能直链下载: code=$SKCODE url=$SKURL body=$(head -c 120 /tmp/sk-dl.out)"
 C=$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $AK2" "$DASH/api/v1/apps/$APPID/credentials")
 [ "$C" = "403" ] && ok "AI KEY 默认无凭证读取权(403)" || bad "AI 凭证读取默认: $C"
 SKC=$(curl -s --max-time 5 -H "Authorization: Bearer $AK2" "$DASH/api/v1/apps/$APPID/skills/kb-api.md/content")

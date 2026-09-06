@@ -158,7 +158,14 @@ func NewTunnel(m *msg.ReqTunnel, ctl *Control) (t *Tunnel, err error) {
 					err = fmt.Errorf("Privileged remote port %d is not allowed (< 1024)", t.req.RemotePort)
 					return nil, err
 				}
-				bindTcp(int(t.req.RemotePort))
+				if bindTcp(int(t.req.RemotePort)) != nil {
+					// e.g. server restarted while the client auto-reconnected
+					// and the old socket was not released yet. Fall back to a
+					// random port so the mapping still serves; the dashboard
+					// shows the real endpoint from the tunnel registry.
+					t.ctl.conn.Warn("Custom port %d unavailable, falling back to a random port", t.req.RemotePort)
+					bindTcp(0)
+				}
 				return
 			}
 

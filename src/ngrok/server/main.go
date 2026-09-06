@@ -209,6 +209,10 @@ func startDashboard() error {
 
 	dash = d
 
+	// 公网入口事实源: dashboard 视图优先展示 tunnel registry 里真实监听的
+	// 端口 (端口被占 fallback 随机端口时, 客户端 ack/库内配置会漂移)
+	d.SetEndpointResolver(tunnelRegistry.PublicURLByMapping)
+
 	if username, password, created := d.Bootstrap(); created {
 		msg := fmt.Sprintf("oneNat dashboard: created initial admin account %q with password %q (change it after first login)", username, password)
 		log.Warn(msg)

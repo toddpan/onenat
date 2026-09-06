@@ -154,6 +154,30 @@ func (d *Dashboard) DesiredFor(t *Tunnel) []msg.DesiredTunnel {
 	return out
 }
 
+// endpointResolver, wired once at server startup, returns the REAL public
+// endpoint the server is listening on for a mapping (tunnel registry as the
+// source of truth). Falls back to the client's last ack when unavailable.
+var endpointResolver func(mappingID string) string
+
+// SetEndpointResolver injects the server-side endpoint lookup (server pkg).
+func (d *Dashboard) SetEndpointResolver(f func(mappingID string) string) {
+	endpointResolver = f
+}
+
+// PublicEndpoint resolves the actually-serving public URL for a mapping:
+// real registry endpoint first, client ack as fallback.
+func (d *Dashboard) PublicEndpoint(mappingID string, rt *RuntimeView) string {
+	if endpointResolver != nil {
+		if u := endpointResolver(mappingID); u != "" {
+			return u
+		}
+	}
+	if rt != nil {
+		return rt.Active[mappingID]
+	}
+	return ""
+}
+
 // ReportAck records the client's acknowledgement of a config version.
 func (d *Dashboard) ReportAck(tunnelID string, ack *msg.AckConfig) {
 	d.rtMu.Lock()
