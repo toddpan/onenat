@@ -1,21 +1,41 @@
-# oneNat systemd 服务模板
+# oneNat systemd 服务单元 - 线上部署 (106.12.157.35)
 # 安装:
 #   sudo cp bin/ngrokd-linux-<arch> /usr/local/bin/ngrokd
-#   sudo cp onenat.service /etc/systemd/system/   (按需修改下面两行)
+#   sudo cp onenat.service /etc/systemd/system/
 #   sudo systemctl daemon-reload && sudo systemctl enable --now onenat
 [Unit]
-Description=oneNat tunnel server (with web dashboard)
+Description=oneNat tunnel server (with web dashboard) - prod 106.12.157.35
+Documentation=https://github.com/toddpan/onenat
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-# TODO: 改成你的实际目录 (解压目录) 与对外域名
+Type=simple
 WorkingDirectory=/opt/onenat
-ExecStart=/usr/local/bin/ngrokd -domain your.domain.com -tunnelAddr :4443 -httpAddr :80 -httpsAddr "" -webAddr :18080 -webData /opt/onenat/onenat-dashboard.json -dlDir /opt/onenat/dl
+Environment=DOMAIN=106.12.157.35
+ExecStart=/usr/local/bin/ngrokd \
+  -domain 106.12.157.35 \
+  -tunnelAddr :4443 \
+  -httpAddr "" \
+  -httpsAddr "" \
+  -webAddr :18080 \
+  -webData /opt/onenat/onenat-dashboard.json \
+  -webAdminPass C7u2HayxWER6 \
+  -dlDir /opt/onenat/dl \
+  -log /var/log/onenat/onenat.log \
+  -log-level INFO
 Restart=always
 RestartSec=3
-# 对外端口 >=1024 无需特权; 若用 80/443 可加:
-# AmbientCapabilities=CAP_NET_BIND_SERVICE
+# 日志集中到 journald / /var/log/onenat/
+StandardOutput=journal
+StandardError=journal
+# 资源限制 (服务是单进程, 给点资源够用)
+LimitNOFILE=65535
+# 安全加固 (服务是受信应用, 取消部分限制以保证绑定 4443 / 18080)
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
 
 [Install]
 WantedBy=multi-user.target

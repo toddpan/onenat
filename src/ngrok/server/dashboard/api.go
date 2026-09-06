@@ -69,6 +69,7 @@ type MappingView struct {
 	*Mapping
 	PublicURL string `json:"public_url"`
 	Error     string `json:"error"`
+	AppName   string `json:"app_name,omitempty"` // 关联应用名 (UI 展示)
 }
 
 type TunnelListItem struct {
@@ -268,11 +269,13 @@ func (d *Dashboard) apiGetTunnel(w http.ResponseWriter, r *http.Request) {
 	}
 	rt := detail.Runtime
 	for _, m := range t.Mappings {
-		detail.Mappings = append(detail.Mappings, MappingView{
-			Mapping:   m,
-			PublicURL: rt.Active[m.ID],
-			Error:     rt.Errors[m.ID],
-		})
+		mv := MappingView{Mapping: m, PublicURL: rt.Active[m.ID], Error: rt.Errors[m.ID]}
+		if m.AppID != "" {
+			if a := d.store.AppByID(m.AppID); a != nil {
+				mv.AppName = a.Name
+			}
+		}
+		detail.Mappings = append(detail.Mappings, mv)
 	}
 	writeJSON(w, http.StatusOK, detail)
 }
@@ -377,12 +380,14 @@ type mappingBody struct {
 	RemotePort int    `json:"remote_port"`
 	Subdomain  string `json:"subdomain"`
 	Note       string `json:"note"`
+	AppID      string `json:"app_id"` // 必填: 关联应用
 }
 
 func (b mappingBody) toInput() MappingInput {
 	return MappingInput{
 		Proto: b.Proto, LocalIP: b.LocalIP, LocalPort: b.LocalPort,
 		RemotePort: b.RemotePort, Subdomain: b.Subdomain, Note: b.Note,
+		AppID: b.AppID,
 	}
 }
 
@@ -390,6 +395,11 @@ func (d *Dashboard) apiAddMapping(w http.ResponseWriter, r *http.Request) {
 	var in mappingBody
 	if err := decodeBody(r, &in); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
+		return
+	}
+	// 产品规则: 新建端口映射必须关联应用 (存量数据兼容由 store 层放行)
+	if strings.TrimSpace(in.AppID) == "" {
+		writeErr(w, http.StatusBadRequest, "端口映射必须关联一个应用")
 		return
 	}
 	id := pathSeg(r, 2)
@@ -406,6 +416,10 @@ func (d *Dashboard) apiPatchMapping(w http.ResponseWriter, r *http.Request) {
 	var in mappingBody
 	if err := decodeBody(r, &in); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
+		return
+	}
+	if strings.TrimSpace(in.AppID) == "" {
+		writeErr(w, http.StatusBadRequest, "端口映射必须关联一个应用")
 		return
 	}
 	t, m := d.store.MappingByID(pathSeg(r, 2))
@@ -624,6 +638,21 @@ type ResourceMapping struct {
 	Local     string `json:"local"`
 	Note      string `json:"note"`
 	Error     string `json:"error,omitempty"`
+	// App 内嵌绑定的应用 (名称/类型/认证方式/技能清单); 永不含凭证。
+	App *ResourceApp `json:"app,omitempty"`
+}
+
+// fillAppViews resolves MappingView.AppName for UI rendering.
+func (d *Dashboard) fillAppViews(t *Tunnel, rt *RuntimeView, out *[]MappingView) {
+	for _, m := range t.Mappings {
+		mv := MappingView{Mapping: m, PublicURL: rt.Active[m.ID], Error: rt.Errors[m.ID]}
+		if m.AppID != "" {
+			if a := d.store.AppByID(m.AppID); a != nil {
+				mv.AppName = a.Name
+			}
+		}
+		*out = append(*out, mv)
+	}
 }
 
 // apiV1Resources lists the api-key owner's tunnels and their public
@@ -644,13 +673,18 @@ func (d *Dashboard) apiV1Resources(w http.ResponseWriter, r *http.Request) {
 		rt := d.RuntimeView(t.ID)
 		view := ResourceTunnel{ID: t.ID, Name: t.Name, Note: t.Note, Online: d.IsOnline(t.ID), Mappings: []ResourceMapping{}}
 		for _, m := range t.Mappings {
-			view.Mappings = append(view.Mappings, ResourceMapping{
+			rm := ResourceMapping{
 				Proto:     m.Proto,
 				PublicURL: rt.Active[m.ID],
 				Local:     joinHostPort(m.LocalIP, m.LocalPort),
 				Note:      m.Note,
 				Error:     rt.Errors[m.ID],
-			})
+			}
+			if m.AppID != "" {
+				// 技能/应用元数据随映射一起下发; 凭证永不内嵌
+				rm.App = d.resourceAppFor(baseURL(r), m.AppID)
+			}
+			view.Mappings = append(view.Mappings, rm)
 		}
 		out.Tunnels = append(out.Tunnels, view)
 	}
@@ -676,6 +710,8 @@ func (d *Dashboard) skillDoc(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// 追加应用目录: 每个端口背后的应用 + 技能文件下载链接
+	b.WriteString(d.appCatalogMarkdown(k, u, baseURL(r)))
 	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 	w.Write([]byte(b.String()))
 }

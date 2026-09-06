@@ -167,7 +167,10 @@ func (ctl *Controller) Run(config *Configuration) {
 	var termView *term.TermView
 	if config.LogTo != "stdout" {
 		termView = term.NewTermView(ctl)
-		ctl.AddView(termView)
+		if termView != nil {
+			// 非交互环境 (termbox 初始化失败) 时为 nil, 走纯日志模式
+			ctl.AddView(termView)
+		}
 	}
 
 	for _, protocol := range model.GetProtocols() {

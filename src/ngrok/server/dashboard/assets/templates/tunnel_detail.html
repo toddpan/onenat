@@ -58,12 +58,13 @@
       <div class="card-title">端口映射</div>
       <div class="tbl-wrap">
         <table class="tbl">
-          <thead><tr><th>本地服务</th><th>公网连接</th><th>备注</th><th>状态</th>{{if .IsAdmin}}<th>操作</th>{{end}}</tr></thead>
+          <thead><tr><th>本地服务</th><th>公网连接</th><th>应用</th><th>备注</th><th>状态</th>{{if .IsAdmin}}<th>操作</th>{{end}}</tr></thead>
           <tbody>
           {{range .T.Mappings}}
             <tr>
               <td class="mono">{{.LocalIP}}:{{.LocalPort}}</td>
               <td class="mono">{{if .PublicURL}}{{.PublicURL}}{{else}}—{{end}}</td>
+              <td>{{if .AppName}}<a class="chip chip-app" href="/apps/{{.AppID}}">{{.AppName}}</a>{{else}}<span class="muted small">未关联</span>{{end}}</td>
               <td>{{.Note}}</td>
               <td>{{if .Error}}<span class="badge badge-err" title="{{.Error}}">错误</span>
                   {{else if .PublicURL}}<span class="badge badge-on">已开通</span>
@@ -74,7 +75,7 @@
               </td>{{end}}
             </tr>
           {{else}}
-            <tr><td colspan="5" class="empty">暂无端口映射{{if $.IsAdmin}} — 点击「添加端口」{{end}}</td></tr>
+            <tr><td colspan="6" class="empty">暂无端口映射{{if $.IsAdmin}} — 点击「添加端口」{{end}}</td></tr>
           {{end}}
           </tbody>
         </table>
@@ -155,9 +156,11 @@ window.PAGE = {
   tunnelName: "{{.T.Name}}",
   locked: {{if .T.Locked}}true{{else}}false{{end}},
   allowRemoteTargets: {{if .T.AllowRemoteTargets}}true{{else}}false{{end}},
-  mappings: {{toJSON .T.Mappings}}
+  mappings: {{toJSON .T.Mappings}},
+  apps: {{toJSON .Apps}}
 };
 </script>
 <script src="/static/app.js?v={{staticV}}"></script>
+<script src="/static/apps.js?v={{staticV}}"></script>
 </body>
 </html>{{end}}

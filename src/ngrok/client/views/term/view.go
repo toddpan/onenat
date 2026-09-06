@@ -23,7 +23,14 @@ type TermView struct {
 
 func NewTermView(ctl mvc.Controller) *TermView {
 	// initialize terminal display
-	termbox.Init()
+	if err := termbox.Init(); err != nil {
+		// 非交互环境 (后台服务/管道/无人值守安装): termbox 无法工作,
+		// 其阻塞的 Flush 会让 updates 广播分发器卡死, 进而冻结整个
+		// 客户端消息循环 (NewTunnel/ConfigSync 不再被处理)。
+		// 此时跳过 TUI, 以纯日志模式运行。
+		log.Warn("terminal UI unavailable (%v), falling back to log-only mode", err)
+		return nil
+	}
 
 	w, _ := termbox.Size()
 
@@ -62,7 +69,7 @@ func (v *TermView) draw() {
 
 	// quit instructions
 	quitMsg := "(Ctrl+C to quit)"
-	v.Printf(v.w-len(quitMsg), 0, quitMsg)
+	v.Printf(v.w-len(quitMsg), 0, "%s", quitMsg)
 
 	// new version message
 	updateStatus := state.GetUpdateStatus()
@@ -94,7 +101,7 @@ func (v *TermView) draw() {
 	}
 
 	if updateMsg != "" {
-		v.APrintf(termbox.ColorYellow, 30, 0, updateMsg)
+		v.APrintf(termbox.ColorYellow, 30, 0, "%s", updateMsg)
 	}
 
 	v.APrintf(termbox.ColorBlue|termbox.AttrBold, 0, 0, "ngrok")

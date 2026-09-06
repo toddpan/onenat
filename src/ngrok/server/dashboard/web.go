@@ -1,13 +1,17 @@
 package dashboard
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	htmpl "html/template"
+	"io"
 	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	ttmpl "text/template"
@@ -111,6 +115,31 @@ type tunnelDetailPageData struct {
 	ConnRows      []ConnRecord
 	Weekly        []DayTraffic
 	MaxWeekly     int64
+	Apps          []AppOption // 映射表单「关联应用」下拉
+}
+
+// AppOption is a slim app descriptor for select dropdowns.
+type AppOption struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+// appOptionsFor lists the apps selectable by the user in mapping forms:
+// users pick their own apps; admins may pick any app owned by the tunnel
+// owner (binding is validated server-side again on submit).
+func (d *Dashboard) appOptionsFor(u *User, tunnel *Tunnel) []AppOption {
+	var ownerID string
+	if tunnel != nil {
+		ownerID = tunnel.OwnerID
+	} else {
+		ownerID = u.ID
+	}
+	var out []AppOption
+	for _, a := range d.store.Apps(ownerID, u.Role == "admin") {
+		out = append(out, AppOption{ID: a.ID, Name: a.Name, Type: a.Type})
+	}
+	return out
 }
 
 type usersPageData struct {
@@ -230,11 +259,13 @@ func (d *Dashboard) tunnelDetail(t *Tunnel) *TunnelDetail {
 	}
 	rt := detail.Runtime
 	for _, m := range t.Mappings {
-		detail.Mappings = append(detail.Mappings, MappingView{
-			Mapping:   m,
-			PublicURL: rt.Active[m.ID],
-			Error:     rt.Errors[m.ID],
-		})
+		mv := MappingView{Mapping: m, PublicURL: rt.Active[m.ID], Error: rt.Errors[m.ID]}
+		if m.AppID != "" {
+			if a := d.store.AppByID(m.AppID); a != nil {
+				mv.AppName = a.Name
+			}
+		}
+		detail.Mappings = append(detail.Mappings, mv)
 	}
 	return detail
 }
@@ -259,6 +290,7 @@ func (d *Dashboard) pageTunnelDetail(w http.ResponseWriter, r *http.Request) {
 		OwnerName:  td.OwnerName,
 		ConnRows:   td.Runtime.Conns,
 		Weekly:     td.Runtime.WeeklyTraffic,
+		Apps:       d.appOptionsFor(u, t),
 	}
 	for _, day := range data.Weekly {
 		if day.Bytes > data.MaxWeekly {
@@ -337,12 +369,75 @@ func (d *Dashboard) handleDownload(w http.ResponseWriter, r *http.Request) {
 
 func (d *Dashboard) handleInstallScript(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/x-shellscript; charset=utf-8")
-	d.installTmpl.Execute(w, map[string]string{"BaseURL": baseURL(r)})
+	d.installTmpl.Execute(w, map[string]string{
+		"BaseURL":       baseURL(r),
+		"ChecksumTable": d.dlChecksumTableSh(),
+	})
 }
 
 func (d *Dashboard) handleInstallPs1(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	d.installPs1Tmpl.Execute(w, map[string]string{"BaseURL": baseURL(r)})
+	d.installPs1Tmpl.Execute(w, map[string]string{
+		"BaseURL":       baseURL(r),
+		"ChecksumTable": d.dlChecksumTablePs1(),
+	})
+}
+
+// dlChecksumTableSh renders a POSIX-sh case-table baking the MD5 of every
+// client binary in the dl dir into the installer, so the script can skip
+// re-downloading an unchanged binary and verify the download afterwards.
+func (d *Dashboard) dlChecksumTableSh() string {
+	var b strings.Builder
+	for _, n := range d.dlClientBinaries() {
+		sum, err := fileMD5(filepath.Join(d.opts.DlDir, n))
+		if err != nil {
+			continue
+		}
+		fmt.Fprintf(&b, "    %s) echo %q ;;\n", n, sum)
+	}
+	return b.String()
+}
+
+// dlChecksumTablePs1 is the PowerShell hashtable variant of the same table.
+func (d *Dashboard) dlChecksumTablePs1() string {
+	var b strings.Builder
+	for _, n := range d.dlClientBinaries() {
+		sum, err := fileMD5(filepath.Join(d.opts.DlDir, n))
+		if err != nil {
+			continue
+		}
+		fmt.Fprintf(&b, "  %q = %q\n", n, sum)
+	}
+	return b.String()
+}
+
+// dlClientBinaries lists ngrok_* client binaries in the dl dir (sorted).
+func (d *Dashboard) dlClientBinaries() []string {
+	entries, err := os.ReadDir(d.opts.DlDir)
+	if err != nil {
+		return nil
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasPrefix(e.Name(), "ngrok_") {
+			names = append(names, e.Name())
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+func fileMD5(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := md5.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // installScriptTmpl is the one-click installer. {{.BaseURL}} is baked at
@@ -365,27 +460,70 @@ case "$OS" in Linux) os=linux ;; Darwin) os=darwin ;; *) echo "暂不支持的�
 case "$ARCH" in x86_64|amd64) arch=amd64 ;; aarch64|arm64) arch=arm64 ;; armv7l) arch=arm ;; *) echo "暂不支持的架构: $ARCH"; exit 1 ;; esac
 BIN_NAME="ngrok_${os}_${arch}"
 
+# ---- 客户端 MD5 清单 (服务端渲染时从 dl 目录计算烘入) ----
+md5_of_remote() {
+  case "$1" in
+{{.ChecksumTable}}    *) echo "" ;;
+  esac
+}
+# 跨平台 MD5: Linux=md5sum, macOS=md5 -q, 缺工具返回空
+md5_of_file() {
+  if command -v md5sum >/dev/null 2>&1; then md5sum "$1" 2>/dev/null | awk '{print $1}'
+  elif command -v md5 >/dev/null 2>&1; then md5 -q "$1" 2>/dev/null
+  else echo ""; fi
+}
+
 IS_ROOT=0; [ "$(id -u)" = "0" ] && IS_ROOT=1
-TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
-
-echo ">> [1/4] 下载客户端 $BIN_NAME ..."
-if command -v curl >/dev/null 2>&1; then
-  curl -# -fSL "$SERVER/dl/$BIN_NAME" -o "$TMP/ngrok"
-elif command -v wget >/dev/null 2>&1; then
-  wget --progress=bar:force -q --show-progress "$SERVER/dl/$BIN_NAME" -O "$TMP/ngrok" 2>&1 || wget -q "$SERVER/dl/$BIN_NAME" -O "$TMP/ngrok"
-else
-  echo "未找到 curl 或 wget"
-  exit 1
-fi
-chmod +x "$TMP/ngrok"
-
 if [ "$IS_ROOT" = "1" ] || [ -w /usr/local/bin ] 2>/dev/null; then
   DEST=/usr/local/bin/ngrok
 else
   DEST="$HOME/.local/bin/ngrok"; mkdir -p "$(dirname "$DEST")"
 fi
-mv "$TMP/ngrok" "$DEST"
-echo "   客户端: $DEST"
+TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+
+download_client() {
+  if command -v curl >/dev/null 2>&1; then
+    curl -# -fSL "$SERVER/dl/$BIN_NAME" -o "$TMP/ngrok"
+  elif command -v wget >/dev/null 2>&1; then
+    wget --progress=bar:force -q --show-progress "$SERVER/dl/$BIN_NAME" -O "$TMP/ngrok" 2>&1 || wget -q "$SERVER/dl/$BIN_NAME" -O "$TMP/ngrok"
+  else
+    echo "未找到 curl 或 wget"
+    exit 1
+  fi
+  chmod +x "$TMP/ngrok"
+  if [ -n "$REMOTE_MD5" ]; then
+    GOT=$(md5_of_file "$TMP/ngrok")
+    if [ -z "$GOT" ]; then
+      echo "   (本地无 md5 工具, 跳过下载后校验)"
+    elif [ "$GOT" != "$REMOTE_MD5" ]; then
+      echo "下载校验失败: 期望 MD5=$REMOTE_MD5, 实际=$GOT"
+      exit 1
+    else
+      echo "   MD5 校验通过: $GOT"
+    fi
+  fi
+  mv "$TMP/ngrok" "$DEST"
+  echo "   客户端: $DEST"
+}
+
+echo ">> [1/4] 客户端 $BIN_NAME ..."
+REMOTE_MD5=$(md5_of_remote "$BIN_NAME")
+if [ -x "$DEST" ] && [ -n "$REMOTE_MD5" ]; then
+  LOCAL_MD5=$(md5_of_file "$DEST")
+  if [ -n "$LOCAL_MD5" ] && [ "$LOCAL_MD5" = "$REMOTE_MD5" ]; then
+    echo "   ✓ 客户端已是最新版本 (MD5 一致), 跳过下载: $DEST"
+  else
+    echo "   本地客户端与服务器版本不一致, 重新下载 ..."
+    download_client
+  fi
+else
+  if [ ! -x "$DEST" ]; then
+    echo "   未检测到已安装客户端, 开始下载 ..."
+  else
+    echo "   无版本校验值, 重新下载 ..."
+  fi
+  download_client
+fi
 
 echo ">> [2/4] 拉取部署配置 ..."
 if [ "$IS_ROOT" = "1" ] || [ -w /etc ] 2>/dev/null; then CFG_DIR=/etc/ngrok; else CFG_DIR="$HOME/.ngrok.d"; fi
@@ -466,13 +604,42 @@ switch ($env:PROCESSOR_ARCHITECTURE) {
 }
 $exeName = "ngrok_windows_${arch}.exe"
 
+# ---- 客户端 MD5 清单 (服务端渲染时从 dl 目录计算烘入) ----
+$MD5Table = @{
+{{.ChecksumTable}}}
+
 if (-not $InstallDir) { $InstallDir = Join-Path $env:LOCALAPPDATA "ngrok" }
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 $exePath = Join-Path $InstallDir "ngrok.exe"
 $cfgPath = Join-Path $InstallDir "ngrok-managed.yml"
 
-Write-Host ">> [1/4] 下载客户端 $exeName ..."
-Invoke-WebRequest -UseBasicParsing -Uri "$BaseURL/dl/$exeName" -OutFile $exePath
+# 停掉本安装目录下的旧进程, 避免文件占用
+Get-Process ngrok -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exePath } | Stop-Process -Force -ErrorAction SilentlyContinue
+
+Write-Host ">> [1/4] 客户端 $exeName ..."
+$wantMd5 = $MD5Table[$exeName]
+$skip = $false
+if ($wantMd5 -and (Test-Path $exePath)) {
+  $haveMd5 = (Get-FileHash -Algorithm MD5 -Path $exePath).Hash.ToLower()
+  if ($haveMd5 -eq $wantMd5) {
+    Write-Host "   客户端已是最新版本 (MD5 一致), 跳过下载: $exePath"
+    $skip = $true
+  }
+}
+if (-not $skip) {
+  Invoke-WebRequest -UseBasicParsing -Uri "$BaseURL/dl/$exeName" -OutFile "$exePath.tmp"
+  if ($wantMd5) {
+    $gotMd5 = (Get-FileHash -Algorithm MD5 -Path "$exePath.tmp").Hash.ToLower()
+    if ($gotMd5 -ne $wantMd5) {
+      Write-Host "下载校验失败: 期望 MD5=$wantMd5, 实际=$gotMd5"
+      Remove-Item "$exePath.tmp" -Force -ErrorAction SilentlyContinue
+      exit 1
+    }
+    Write-Host "   MD5 校验通过: $gotMd5"
+  }
+  Move-Item -Force "$exePath.tmp" $exePath
+  Write-Host "   客户端: $exePath"
+}
 
 Write-Host ">> [2/4] 拉取部署配置 ..."
 Invoke-WebRequest -UseBasicParsing -Uri "$BaseURL/api/deploy?id=$TunnelId&key=$Key" -OutFile $cfgPath
@@ -483,8 +650,6 @@ if (-not (Select-String -Path $cfgPath -Pattern "server_addr" -Quiet)) {
 }
 
 Write-Host ">> [3/4] 注册当前用户自启动 (无需管理员) ..."
-# 停掉本安装目录下的旧进程, 避免文件占用
-Get-Process ngrok -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exePath } | Stop-Process -Force -ErrorAction SilentlyContinue
 
 if ($PSVersionTable.Platform -eq "Unix") {
   Write-Host "   (当前非 Windows 环境, 跳过自启动注册与启动)"
@@ -560,11 +725,41 @@ curl -s -H "Authorization: Bearer {{.Key}}" {{.BaseURL}}/api/v1/resources
 - ` + "`online=false`" + ` 或映射缺少 public_url 时，说明客户端当前离线，该资源暂不可达，
   请告知用户，不要反复重试。
 
-## 3. 行为约定
+## 3. 获取应用技能 (先读技能, 再用资源)
+
+每个端口映射背后登记了一个「应用」(数据库 / API / SSH 等真实系统)。
+**使用任何应用之前，必须先下载并阅读它的技能文件**——技能文件由应用的主人维护，
+包含真实的接口地址、认证方式、调用示例与注意事项，是唯一权威说明。
+
+三种获取方式 (任选其一):
+
+1. 资源列表直达 (推荐): ` + "`/api/v1/resources`" + ` 返回里每个映射的
+   ` + "`app.skills[].url`" + ` 就是技能下载链接 (已带认证)，直接下载:
+   ` + "`" + `bash
+   curl -s "<app.skills[].url>" -o <技能名>
+   ` + "`" + `
+2. 应用目录: 先列应用再按名字取内容:
+   ` + "`" + `bash
+   curl -s -H "Authorization: Bearer {{.Key}}" {{.BaseURL}}/api/v1/apps
+   curl -s -H "Authorization: Bearer {{.Key}}" {{.BaseURL}}/api/v1/apps/<app_id>/skills/<技能名>/content
+   ` + "`" + `
+3. 平台总索引 (Markdown 目录, 全部应用+全部技能):
+   ` + "`" + `bash
+   curl -s "{{.BaseURL}}/skill/index.md?key={{.Key}}"
+   ` + "`" + `
+
+规则:
+- 技能文件与你的猜测冲突时，**以技能文件为准**；技能没提的能力不要臆造。
+- 需要应用的登录凭证时: ` + "`GET /api/v1/apps/<app_id>/credentials`" + `。
+  默认返回 403 (需应用主人为该 API KEY 开启「允许读取凭证」)；开启后仍受限速与审计约束。
+- 平台对 AI 只读；技能文件里描述的写操作属于应用自身的能力，按技能说明执行即可。
+
+## 4. 行为约定
 
 1. 只读: 仅查询与连接现有资源；任何创建/修改/删除请求都应拒绝并告知用户需要管理员在 Web 后台操作。
 2. 列表展示用表格: 名称 / 类型 / 公网入口 / 状态 / 备注。
-3. API KEY 属于敏感凭据: 不要把它打印到无关输出或转发给第三方。
+3. 使用一个应用前先读它的技能文件 (见第 3 节)，不要盲连。
+4. API KEY 属于敏感凭据: 不要把它打印到无关输出或转发给第三方。
 `
 
 // keysPageData powers the API-key management page.

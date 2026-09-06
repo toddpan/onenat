@@ -7,11 +7,15 @@ package dashboard
 import (
 	htmpl "html/template"
 	"net/http"
+	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"sync"
 	ttmpl "text/template"
 	"time"
+
+	"ngrok/log"
 )
 
 type Options struct {
@@ -21,6 +25,7 @@ type Options struct {
 	DlDir        string // directory serving prebuilt client binaries
 	AdminPass    string // optional initial admin password (random when empty)
 	SecureCookie bool   // mark session cookies Secure (recommended when behind HTTPS)
+	SkillsDir    string // directory holding skill-file content (default <webData dir>/skills)
 }
 
 type Dashboard struct {
@@ -39,7 +44,18 @@ type Dashboard struct {
 
 	deployMu   sync.Mutex
 	deployHits map[string]*deployCounter
+
+	// 应用/技能子系统
+	audit         *AuditLog
+	revealLimiter *limiter // 凭证明文 reveal 限速
+	credLimiter   *limiter // AI 凭证接口限速
 }
+
+// SkillsDir returns the configured skill-content directory.
+func (d *Dashboard) SkillsDir() string { return d.opts.SkillsDir }
+
+// SetAuditLog installs the audit writer (wired at startup).
+func (d *Dashboard) SetAuditLog(a *AuditLog) { d.audit = a }
 
 // New opens (or bootstraps) the store and returns a ready dashboard.
 func New(opts Options) (*Dashboard, error) {
@@ -48,22 +64,75 @@ func New(opts Options) (*Dashboard, error) {
 		return nil, err
 	}
 	d := &Dashboard{
-		store:      store,
-		sessions:   NewSessions(store.SessionSecret()),
-		opts:       opts,
-		runtime:    map[string]*runtimeState{},
-		deployHits: map[string]*deployCounter{},
+		store:         store,
+		sessions:      NewSessions(store.SessionSecret()),
+		opts:          opts,
+		runtime:       map[string]*runtimeState{},
+		deployHits:    map[string]*deployCounter{},
+		revealLimiter: newLimiter(),
+		credLimiter:   newLimiter(),
 	}
+	// 应用凭证加密主密钥 (0600 文件或 ONENAT_SECRET_KEY 注入)
+	keyFile := secretKeyPathDefault(opts.DataPath)
+	masterKey, err := LoadOrCreateMasterKey(keyFile)
+	if err != nil {
+		return nil, err
+	}
+	store.SetCredentialKey(masterKey)
+	// 审计日志: 与数据文件同目录
+	if err := os.MkdirAll(d.skillsDirResolved(), 0700); err != nil {
+		return nil, err
+	}
+	d.SetAuditLog(NewAuditLog(filepath.Join(dirOf(opts.DataPath), "onenat-audit.jsonl")))
 	if err := d.parseTemplates(); err != nil {
 		return nil, err
 	}
 	return d, nil
 }
 
+// skillsDirResolved returns the effective skill-content directory.
+func (d *Dashboard) skillsDirResolved() string {
+	if d.opts.SkillsDir == "" {
+		return filepath.Join(dirOf(d.opts.DataPath), "skills")
+	}
+	return d.opts.SkillsDir
+}
+
 // Bootstrap prints and returns the initial admin credentials when the store
 // was empty (fresh install). Returns created=false otherwise.
 func (d *Dashboard) Bootstrap() (username, password string, created bool) {
 	return d.store.BootstrapAdmin(d.opts.AdminPass)
+}
+
+// SeedBuiltinApps precreates the built-in app catalog for a fresh install:
+// an "SSH Server" app (owned by the initial admin) with the platform's
+// full-featured SSH skill. Idempotent — skips when the app already exists.
+func (d *Dashboard) SeedBuiltinApps() {
+	u := d.store.UserByName("admin")
+	if u == nil {
+		return
+	}
+	for _, a := range d.store.Apps(u.ID, true) {
+		if a.Name == "SSH Server" {
+			return
+		}
+	}
+	a, err := d.store.CreateApp(AppInput{
+		Name:        "SSH Server",
+		Type:        "ssh",
+		OwnerID:     u.ID,
+		Description: "内置应用: 通过平台隧道入口连接 SSH 服务器。绑定映射后即可在资源列表获取入口; 请在 Web 端补充真实主机信息与凭证",
+		Auth:        AppAuthInput{AuthType: "none"},
+	})
+	if err != nil {
+		log.Warn("oneNat dashboard: seed builtin SSH Server app failed: %v", err)
+		return
+	}
+	if err := d.scaffoldSkill(a, u.Username); err != nil {
+		log.Warn("oneNat dashboard: seed builtin SSH skill failed: %v", err)
+		return
+	}
+	log.Info("oneNat dashboard: seeded builtin app \"SSH Server\" (%s) with SSH skill", a.ID)
 }
 
 // Store exposes the underlying store (used by the server package at startup).
@@ -169,6 +238,21 @@ func (d *Dashboard) route(w http.ResponseWriter, r *http.Request) {
 		d.requireAdmin(http.HandlerFunc(d.pageUsers)).ServeHTTP(w, r)
 	case p == "/keys" && m == http.MethodGet:
 		d.requireUser(http.HandlerFunc(d.pageKeys)).ServeHTTP(w, r)
+	case p == "/apps" && m == http.MethodGet:
+		d.requireUser(http.HandlerFunc(d.pageApps)).ServeHTTP(w, r)
+	case strings.HasPrefix(p, "/apps/"):
+		if methodMismatch(w, r, http.MethodGet) {
+			return
+		}
+		d.requireUser(http.HandlerFunc(d.pageAppDetail)).ServeHTTP(w, r)
+
+	// ---------- apps api (会话鉴权, 所有权隔离) ----------
+	case p == "/api/apps" && m == http.MethodGet:
+		d.requireUser(http.HandlerFunc(d.apiListApps)).ServeHTTP(w, r)
+	case p == "/api/apps" && m == http.MethodPost:
+		d.requireUser(http.HandlerFunc(d.apiCreateApp)).ServeHTTP(w, r)
+	case strings.HasPrefix(p, "/api/apps/"):
+		d.routeAppAPI(w, r)
 
 	// ---------- api keys (用户自管理) ----------
 	case p == "/api/keys" && m == http.MethodGet:
@@ -184,8 +268,14 @@ func (d *Dashboard) route(w http.ResponseWriter, r *http.Request) {
 	// ---------- AI agent 只读接口 (API KEY 鉴权) ----------
 	case p == "/api/v1/resources":
 		d.apiV1Resources(w, r)
+	case p == "/api/v1/apps":
+		d.apiV1Apps(w, r)
+	case strings.HasPrefix(p, "/api/v1/apps/"):
+		d.routeAppV1(w, r)
 	case p == "/skill/onenat.md":
 		d.skillDoc(w, r)
+	case p == "/skill/index.md":
+		d.skillIndexDoc(w, r)
 
 	// ---------- tunnels api ----------
 	case p == "/api/me" && m == http.MethodGet:

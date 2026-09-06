@@ -103,6 +103,31 @@ ALICE_ID=$(req -X POST -H 'Content-Type: application/json' -d '{"username":"alic
      "$DASH/api/users" | jget id)
 [ -n "$ALICE_ID" ] && ok "创建普通用户 alice" || bad "创建普通用户"
 
+echo "== [1.5] 应用注册 (端口背后的能力抽象) =="
+# alice 登录 (应用归属创建者; 隧道也归属 alice, 绑定校验要求同主)
+curl -s -c "$T/alice.cookies" -X POST -H 'Content-Type: application/json' \
+  -d '{"username":"alice","password":"alice123"}' "$DASH/api/login" > /dev/null
+areq()  { curl -sf --max-time 5 -b "$T/alice.cookies" "$@"; }
+areqx() { curl -s --max-time 5 -b "$T/alice.cookies" -o /dev/null -w '%{http_code}' "$@"; }
+areap() { curl -s --max-time 5 -b "$T/alice.cookies" -H 'Content-Type: application/json' "$@"; }
+
+APPID=$(areap -X POST -d '{"name":"KB API","type":"http-api","description":"仓储AGV系统接口","internal_url":"http://127.0.0.1:8080","auth_type":"basic","username":"kbadmin","password":"kbpass88"}' \
+  "$DASH/api/apps" | jget app.id)
+[ ${#APPID} -ge 10 ] && ok "alice 注册应用 KB API (id=$APPID)" || bad "注册应用: $APPID"
+
+# 凭证加密落盘: 数据文件中不得出现明文密码
+grep -q "kbpass88" "$T/dash.json" && bad "凭证明文泄露到存储!" || ok "凭证 AES-GCM 加密落盘 (dash.json 无明文)"
+# 详情视图打码
+MASKED=$(areq "$DASH/api/apps/$APPID" | jget app.password_mask)
+[[ "$MASKED" == ••••* ]] && ok "凭证打码显示 ($MASKED)" || bad "凭证打码: $MASKED"
+# 按类型自动生成技能骨架
+NSK=$(areq "$DASH/api/apps/$APPID/skills" | jget "#skills")
+[ "$NSK" = "1" ] && ok "http-api 类型自动生成技能骨架" || bad "技能骨架数: $NSK"
+# 跨用户隔离: alice 读不到 admin 的应用 (统一 404 不泄露存在性)
+ADMINAPP=$(curl -s --max-time 5 -b "$T/admin.cookies" -H 'Content-Type: application/json' \
+  -X POST -d '{"name":"admin-only","type":"ssh","auth_type":"none"}' "$DASH/api/apps" | jget app.id)
+C=$(areqx "$DASH/api/apps/$ADMINAPP")
+[ "$C" = "404" ] && ok "跨用户应用读取被拒(404)" || bad "跨用户应用: $C"
 echo "== [2] 隧道与端口映射 CRUD =="
 TUNID=$(req -X POST -H 'Content-Type: application/json' -d "{\"name\":\"kb\",\"note\":\"e2e\",\"owner_id\":\"$ALICE_ID\"}" \
      "$DASH/api/tunnels" | jget id)
@@ -112,27 +137,27 @@ KEY=$(req "$DASH/api/tunnels/$TUNID" | jget key)
 [[ "$KEY" == ngk-* ]] && ok "自动生成隧道 KEY" || bad "隧道 KEY: $KEY"
 
 MID=$(req -X POST -H 'Content-Type: application/json' \
-  -d '{"proto":"tcp","local_ip":"127.0.0.1","local_port":2222,"remote_port":0,"note":"ssh"}' \
+  -d "{\"proto\":\"tcp\",\"local_ip\":\"127.0.0.1\",\"local_port\":2222,\"remote_port\":0,\"note\":\"ssh\",\"app_id\":\"$APPID\"}" \
   "$DASH/api/tunnels/$TUNID/mappings" | jget mapping.id)
 [ -n "$MID" ] && ok "添加 TCP 端口映射 (mapping=$MID)" || bad "添加 TCP 映射"
 
 MWEB=$(req -X POST -H 'Content-Type: application/json' \
-  -d '{"proto":"http","local_ip":"127.0.0.1","local_port":8080,"subdomain":"kb","note":"web"}' \
+  -d "{\"proto\":\"http\",\"local_ip\":\"127.0.0.1\",\"local_port\":8080,\"subdomain\":\"kb\",\"note\":\"web\",\"app_id\":\"$APPID\"}" \
   "$DASH/api/tunnels/$TUNID/mappings" | jget mapping.id)
 [ -n "$MWEB" ] && ok "添加 HTTP 端口映射" || bad "添加 HTTP 映射"
 
-C=$(curl -s --max-time 5 -b "$T/admin.cookies" -X POST -H 'Content-Type: application/json' -d '{"proto":"tcp","local_port":1,"remote_port":99999}' \
+C=$(curl -s --max-time 5 -b "$T/admin.cookies" -X POST -H 'Content-Type: application/json' -d "{\"proto\":\"tcp\",\"local_port\":1,\"remote_port\":99999,\"app_id\":\"$APPID\"}" \
   "$DASH/api/tunnels/$TUNID/mappings" -o /dev/null -w '%{http_code}')
 [ "$C" = "400" ] && ok "非法映射参数被拒绝(400)" || bad "非法映射参数: $C"
 
 # 安全边界: 默认拒绝非本地 IP (防内网跳板与 SSRF)
 C=$(curl -s --max-time 5 -b "$T/admin.cookies" -X POST -H 'Content-Type: application/json' \
-  -d '{"proto":"tcp","local_ip":"192.168.1.100","local_port":8080}' "$DASH/api/tunnels/$TUNID/mappings" -o /dev/null -w '%{http_code}')
+  -d "{\"proto\":\"tcp\",\"local_ip\":\"192.168.1.100\",\"local_port\":8080,\"app_id\":\"$APPID\"}" "$DASH/api/tunnels/$TUNID/mappings" -o /dev/null -w '%{http_code}')
 [ "$C" = "400" ] && ok "默认拒绝内网非本机目标(400)" || bad "默认内网 IP: $C"
 
 # 安全边界: 拒绝特权端口 < 1024
 C=$(curl -s --max-time 5 -b "$T/admin.cookies" -X POST -H 'Content-Type: application/json' \
-  -d '{"proto":"tcp","local_port":8080,"remote_port":80}' "$DASH/api/tunnels/$TUNID/mappings" -o /dev/null -w '%{http_code}')
+  -d "{\"proto\":\"tcp\",\"local_port\":8080,\"remote_port\":80,\"app_id\":\"$APPID\"}" "$DASH/api/tunnels/$TUNID/mappings" -o /dev/null -w '%{http_code}')
 [ "$C" = "400" ] && ok "拒绝公网特权端口 < 1024(400)" || bad "特权端口: $C"
 
 echo "== [3] 一键部署链路 =="
@@ -144,6 +169,13 @@ grep -q "tunnel_id: $TUNID" "$T/ngrok-managed.yml" && ok "部署配置含 tunnel
 SZ=$(curl -sf "$DASH/dl/ngrok_linux_amd64" | wc -c)
 [ "$SZ" -gt 1000000 ] && ok "客户端二进制分发 /dl ($(du -h dl/ngrok_linux_amd64 | cut -f1))" || bad "/dl 分发: $SZ 字节"
 curl -sf "$DASH/install.sh" | head -2 | grep -q "install" && ok "install.sh 可获取" || bad "install.sh"
+# MD5 幂等: 内嵌校验值与 dl 目录真实 MD5 一致, 且含跳过/校验逻辑
+EXPECT_MD5=$(md5 -q dl/ngrok_linux_amd64)
+INSTALL_SH=$(curl -sf "$DASH/install.sh")
+echo "$INSTALL_SH" | grep -q "$EXPECT_MD5" && ok "install.sh 内嵌 dl 二进制真实 MD5" || bad "install.sh MD5 缺失/不符"
+echo "$INSTALL_SH" | grep -q "跳过下载" && ok "install.sh 含 MD5 幂等跳过逻辑" || bad "install.sh 缺跳过逻辑"
+echo "$INSTALL_SH" | grep -q "下载校验失败" && ok "install.sh 含下载后 MD5 校验" || bad "install.sh 缺下载校验"
+sh -n <(echo "$INSTALL_SH") 2>/dev/null && ok "install.sh 语法合法 (sh -n)" || bad "install.sh 语法错误"
 C=$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' "$DASH/install.ps1")
 [ "$C" = "200" ] && ok "install.ps1 可获取(Windows)" || bad "install.ps1: $C"
 curl -s --max-time 5 "$DASH/install.ps1" | grep -q "TunnelId" && ok "install.ps1 含参数定义" || bad "install.ps1 内容异常"
@@ -167,7 +199,7 @@ R2=$(curl -s --max-time 3 -H "Host: kb.127.0.0.1:$HTTPPORT" "http://127.0.0.1:$H
 echo "== [5] 在线修改端口映射(不重启客户端) =="
 CLIENT_PID=$(cat "$T/client.pid")
 M2=$(req -X POST -H 'Content-Type: application/json' \
-  -d '{"proto":"tcp","local_ip":"127.0.0.1","local_port":2222,"remote_port":0,"note":"ssh2"}' \
+  -d "{\"proto\":\"tcp\",\"local_ip\":\"127.0.0.1\",\"local_port\":2222,\"remote_port\":0,\"note\":\"ssh2\",\"app_id\":\"$APPID\"}" \
   "$DASH/api/tunnels/$TUNID/mappings" | jget mapping.id)
 sleep 2.5
 URL2=$(req "$DASH/api/tunnels/$TUNID" | jget "runtime.active.$M2")
@@ -176,7 +208,7 @@ P2=${URL2##*:}
 
 # 修改 M2 为固定端口 24733 → 旧端口关闭, 新端口开通
 req -X PATCH -H 'Content-Type: application/json' \
-  -d '{"proto":"tcp","local_ip":"127.0.0.1","local_port":2222,"remote_port":24733,"note":"ssh2"}' \
+  -d "{\"proto\":\"tcp\",\"local_ip\":\"127.0.0.1\",\"local_port\":2222,\"remote_port\":24733,\"note\":\"ssh2\",\"app_id\":\"$APPID\"}" \
   "$DASH/api/mappings/$M2" > /dev/null
 sleep 2.5
 R3=$((printf "x"; sleep 0.4) | nc 127.0.0.1 24733 | head -c 20 || true)
@@ -271,9 +303,60 @@ echo "$SKILL" | grep -q "oneNat 隧道资源使用技能" && ok "SKILL 文档可
 echo "$SKILL" | grep -q "$AK" && ok "SKILL 内嵌 API KEY" || bad "SKILL 未含 KEY"
 C=$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' "$DASH/skill/onenat.md")
 [ "$C" = "401" ] && ok "无 KEY 下载 SKILL 被拒(401)" || bad "无 KEY SKILL: $C"
+echo "$SKILL" | grep -q "获取应用技能" && echo "$SKILL" | grep -q "credentials" && ok "SKILL 含应用技能获取指引" || bad "SKILL 缺技能获取指引"
 KID=$(req "$DASH/api/keys" | jget keys.0.id)
 C=$(req -X DELETE "$DASH/api/keys/$KID" -o /dev/null -w '%{http_code}')
 [ "$C" = "200" ] && ok "撤销 API KEY" || bad "撤销 API KEY: $C"
+
+echo "== [11.5] 应用技能与凭证安全 =="
+# 技能上传 (JSON 文本)
+areap -X POST -d '{"name":"kb-api.md","content":"# KB API 使用说明\n## 认证: Bearer Token"}' \
+  "$DASH/api/apps/$APPID/skills" > /dev/null && ok "上传技能文件 kb-api.md" || bad "上传技能"
+NSK=$(areq "$DASH/api/apps/$APPID/skills" | jget "#skills")
+[ "$NSK" = "2" ] && ok "技能列表 (骨架+上传=2)" || bad "技能数量: $NSK"
+# 磁盘内容存在 (skills/<appID>/)
+ls "$T/skills/$APPID/"*.md > /dev/null 2>&1 && ok "技能内容落盘 skills/<appID>/" || bad "技能磁盘内容缺失"
+# 路径穿越拒绝
+C=$(areqx -X POST -H 'Content-Type: application/json' -d '{"name":"../../evil.md","content":"x"}' "$DASH/api/apps/$APPID/skills")
+[ "$C" = "400" ] && ok "路径穿越文件名被拒(400)" || bad "穿越文件名: $C"
+# 可执行扩展名拒绝
+C=$(areqx -X POST -H 'Content-Type: application/json' -d '{"name":"evil.sh","content":"x"}' "$DASH/api/apps/$APPID/skills")
+[ "$C" = "400" ] && ok "可执行扩展名被拒(400)" || bad "扩展名白名单: $C"
+# 技能下载 (web 会话, markdown)
+CD=$(areq -o /dev/null -w '%{content_type}' "$DASH/api/apps/$APPID/skills/$(areq "$DASH/api/apps/$APPID/skills" | jget skills.0.id)/download")
+echo "$CD" | grep -q "text/markdown" && ok "技能下载 Content-Type markdown" || bad "技能下载头: $CD"
+# 在线修改 → 版本递增
+SKID=$(areq "$DASH/api/apps/$APPID/skills" | jget skills.0.id)
+V2=$(areap -X PUT -d '{"content":"# v2 修改后的技能"}' "$DASH/api/apps/$APPID/skills/$SKID" | jget skill.version)
+[ "$V2" = "2" ] && ok "在线修改技能 (version→2)" || bad "技能修改: $V2"
+# reveal: 明文返回 + 审计
+PLAIN=$(areap -X POST "$DASH/api/apps/$APPID/reveal")
+echo "$PLAIN" | grep -q "kbpass88" && ok "reveal 返回明文 (owner)" || bad "reveal: $PLAIN"
+grep -q "cred.reveal" "$T/onenat-audit.jsonl" && ok "reveal 写入审计日志" || bad "审计日志缺失"
+
+# ---- AI 侧 (KEY 归属应用主人 alice, AI 只能看到 alice 自己的资源) ----
+AK2=$(areap -X POST -d '{"name":"ai-app"}' "$DASH/api/keys" | jget key.key)
+RES=$(curl -s --max-time 5 -H "Authorization: Bearer $AK2" "$DASH/api/v1/resources")
+echo "$RES" | grep -q '"app"' && ok "resources 内嵌应用信息" || bad "resources 应用缺失"
+echo "$RES" | grep -q "kb-api.md" && ok "resources 内嵌技能下载链接" || bad "resources 技能缺失"
+echo "$RES" | grep -q "kbpass88" && bad "resources 泄露凭证!" || ok "resources 不含任何凭证"
+C=$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $AK2" "$DASH/api/v1/apps/$APPID/credentials")
+[ "$C" = "403" ] && ok "AI KEY 默认无凭证读取权(403)" || bad "AI 凭证读取默认: $C"
+SKC=$(curl -s --max-time 5 -H "Authorization: Bearer $AK2" "$DASH/api/v1/apps/$APPID/skills/kb-api.md/content")
+echo "$SKC" | grep -q "v2 修改后的技能" && ok "AI 按名字下载技能内容" || bad "AI 技能下载: $SKC"
+IDX=$(curl -s --max-time 5 "$DASH/skill/index.md?key=$AK2")
+echo "$IDX" | grep -q "KB API" && ok "平台应用总索引 /skill/index.md" || bad "index.md: $IDX"
+
+# ---- 页面 ----
+C=$(reqx "$DASH/apps"); [ "$C" = "200" ] && ok "应用管理页 200" || bad "应用页: $C"
+C=$(reqx "$DASH/apps/$APPID"); [ "$C" = "200" ] && ok "应用详情页 200" || bad "应用详情页: $C"
+C=$(reqx "$DASH/static/apps.js"); [ "$C" = "200" ] && ok "静态 apps.js 200" || bad "apps.js: $C"
+
+# ---- 删除保护 ----
+C=$(areqx -X DELETE "$DASH/api/apps/$APPID")
+[ "$C" = "409" ] && ok "有绑定映射时删除被拒(409)" || bad "绑定删除保护: $C"
+C=$(areqx -X DELETE "$DASH/api/apps/$APPID?force=1")
+[ "$C" = "200" ] && ok "force 解绑并删除应用" || bad "force 删除: $C"
 
 echo "== [12] Web 页面渲染 =="
 C=$(req -o /dev/null -w '%{http_code}' "$DASH/");           [ "$C" = "200" ] && ok "隧道列表页 200" || bad "列表页: $C"
