@@ -694,13 +694,14 @@ description: 通过 oneNat 平台发现并使用用户的内网隧道资源 (SSH
 - API KEY: {{.Key}}
 - 认证方式: 请求头 ` + "`Authorization: Bearer {{.Key}}`" + ` (也支持 ` + "`?key={{.Key}}`" + ` 查询参数)
 
-## 1. 获取资源列表
+## 1. 获取资源列表 (隧道 ↔ 应用绑定关系的实时来源)
 
 ` + "`" + `bash
 curl -s -H "Authorization: Bearer {{.Key}}" {{.BaseURL}}/api/v1/resources
 ` + "`" + `
 
-返回 JSON 结构:
+返回 JSON 结构 — **每个映射 (mapping) 内嵌它绑定的应用 ` + "`app`" + `**,
+应用里带技能清单 ` + "`skills[]`" + ` (含下载 url):
 
 ` + "`" + `json
 {
@@ -709,12 +710,25 @@ curl -s -H "Authorization: Bearer {{.Key}}" {{.BaseURL}}/api/v1/resources
     {
       "id": "...", "name": "...", "note": "用途说明", "online": true,
       "mappings": [
-        {"proto": "tcp",  "public_url": "tcp://host:port",  "local": "127.0.0.1:22",  "note": "ssh"}
+        {
+          "proto": "tcp", "public_url": "tcp://host:port",
+          "local": "127.0.0.1:22", "note": "ssh",
+          "app": {
+            "id": "app-xxxx", "name": "SSH Server", "type": "ssh",
+            "description": "...", "internal_url": "http://127.0.0.1:22",
+            "skills": [
+              {"name": "usage.md", "size": 2048,
+               "url": "{{.BaseURL}}/api/v1/apps/app-xxxx/skills/usage.md/content"}
+            ]
+          }
+        }
       ]
     }
   ]
 }
 ` + "`" + `
+
+> 映射没有绑定应用时 ` + "`app`" + ` 字段缺省 —— 此时端口用途请向用户确认。
 
 ## 2. 如何连接
 
@@ -722,10 +736,19 @@ curl -s -H "Authorization: Bearer {{.Key}}" {{.BaseURL}}/api/v1/resources
   SSH 示例: ` + "`ssh user@host -p PORT`" + ` (登录凭据由用户另行提供，技能只提供入口)。
   其他 TCP 服务用 ` + "`nc host PORT`" + ` 探测或连接。
 - ` + "`proto=http`" + ` (Web 类): 直接 ` + "`curl http://public_url`" + ` 访问。
+- 应用有自己的服务地址时以 ` + "`app.internal_url`" + ` 为准 (公网入口转发到它)。
 - ` + "`online=false`" + ` 或映射缺少 public_url 时，说明客户端当前离线，该资源暂不可达，
   请告知用户，不要反复重试。
 
 ## 3. 获取应用技能 (先读技能, 再用资源)
+
+**平台的应用与技能是动态维护的**：主人随时会新增应用、更新技能、调整隧道与应用
+的绑定。因此——
+
+- **绑定关系与技能清单的实时来源是 ` + "`" + `/api/v1/resources` + "`" + `** (每个映射的 ` + "`" + `app` + "`" + ` 字段)；
+- 本文档末尾的「应用目录」以及 ` + "`" + `/skill/index.md` + "`" + ` 都是**下载那一刻的快照**；
+- 距离上次获取较久或刚做过重要变更时，请重新拉取 resources 或 index.md，
+  以拿到最新的应用与技能。
 
 每个端口映射背后登记了一个「应用」(数据库 / API / SSH 等真实系统)。
 **使用任何应用之前，必须先下载并阅读它的技能文件**——技能文件由应用的主人维护，

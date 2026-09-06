@@ -262,7 +262,9 @@ func (d *Dashboard) appCatalogMarkdown(k *ApiKey, u *User, base string) string {
 		}
 		if first {
 			b.WriteString("\n## 5. 应用目录 (端口背后的系统)\n\n")
-			b.WriteString("每个端口映射都关联一个应用; 用途与调用方法见对应技能文件 (获取方式见第 3 节):\n\n")
+			b.WriteString("> 本节是**下载本文档那一刻的快照**; 应用/技能/绑定关系动态变化,\n")
+			b.WriteString("> 实时清单以 `/api/v1/resources` 与 `/api/v1/apps` 为准 (获取方式见第 3 节)。\n\n")
+			b.WriteString("每个端口映射都关联一个应用; 用途与调用方法见对应技能文件:\n\n")
 			first = false
 		}
 		b.WriteString(fmt.Sprintf("### %s (`%s`)\n\n", a.Name, a.Type))
@@ -276,7 +278,7 @@ func (d *Dashboard) appCatalogMarkdown(k *ApiKey, u *User, base string) string {
 		b.WriteString("\n")
 	}
 	if first {
-		return "\n## 5. 应用目录\n\n(该账号名下暂无应用登记; 端口用途请向用户确认)\n"
+		return "\n## 5. 应用目录\n\n(该账号名下暂无应用登记; 新增后以 `/api/v1/resources` 与 `/api/v1/apps` 实时为准)\n"
 	}
 	return b.String()
 }

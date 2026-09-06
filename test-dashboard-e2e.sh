@@ -304,6 +304,7 @@ echo "$SKILL" | grep -q "$AK" && ok "SKILL 内嵌 API KEY" || bad "SKILL 未含 
 C=$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' "$DASH/skill/onenat.md")
 [ "$C" = "401" ] && ok "无 KEY 下载 SKILL 被拒(401)" || bad "无 KEY SKILL: $C"
 echo "$SKILL" | grep -q "获取应用技能" && echo "$SKILL" | grep -q "credentials" && ok "SKILL 含应用技能获取指引" || bad "SKILL 缺技能获取指引"
+echo "$SKILL" | grep -q '"app"' && echo "$SKILL" | grep -q "动态维护" && ok "SKILL 说明隧道↔应用绑定与动态性" || bad "SKILL 缺绑定/动态性说明"
 KID=$(req "$DASH/api/keys" | jget keys.0.id)
 C=$(req -X DELETE "$DASH/api/keys/$KID" -o /dev/null -w '%{http_code}')
 [ "$C" = "200" ] && ok "撤销 API KEY" || bad "撤销 API KEY: $C"
