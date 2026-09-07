@@ -223,3 +223,50 @@ func (d *Dashboard) apiV1AppCredentials(w http.ResponseWriter, r *http.Request) 
 		"extra_headers": extra,
 	})
 }
+
+// apiV1MappingCredentials serves GET /api/v1/mappings/:id/credentials —
+// resolves the EFFECTIVE credential of a mapping's upstream instance:
+// mapping-level override wins, otherwise falls back to the bound app's
+// default (resolved_from reports which). Same gate as the app-level
+// endpoint: CanReadCred + shared rate limit + audit on every attempt.
+// 一个应用可被多条映射指向不同实例 (凭证各异), AI 按映射取凭证。
+func (d *Dashboard) apiV1MappingCredentials(w http.ResponseWriter, r *http.Request) {
+	k, u, ok := d.userFromApiKey(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "无效的 API KEY")
+		return
+	}
+	t, m := d.store.MappingByID(pathSeg(r, 3)) // /api/v1/mappings/:id → segs[3]
+	if t == nil || t.OwnerID != u.ID {
+		// 不泄露存在性: 非本账号隧道的映射一律 404
+		http.NotFound(w, r)
+		return
+	}
+	if !k.CanReadCred {
+		d.AuditKey(r, k, "cred.read", m.ID, "denied", map[string]string{"scope": "mapping"})
+		writeErr(w, http.StatusForbidden, "该 API KEY 无凭证读取权限; 请用户在后台为 KEY 开启「允许读取凭证」")
+		return
+	}
+	if !d.credLimiter.allow("cred:"+k.ID, revealMaxPerMinute) {
+		d.AuditKey(r, k, "cred.read", m.ID, "rate-limited", map[string]string{"scope": "mapping"})
+		writeErr(w, http.StatusTooManyRequests, "请求过于频繁, 请稍后再试")
+		return
+	}
+	authType, username, password, apiKey, source, extra, err := d.store.RevealMappingCredential(m.ID)
+	if err != nil {
+		d.AuditKey(r, k, "cred.read", m.ID, err.Error(), map[string]string{"scope": "mapping"})
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	d.AuditKey(r, k, "cred.read", m.ID, "ok", map[string]string{"scope": "mapping", "resolved_from": source})
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"mapping_id":    m.ID,
+		"app_id":        m.AppID,
+		"resolved_from": source,
+		"auth_type":     authType,
+		"username":      username,
+		"password":      password,
+		"api_key":       apiKey,
+		"extra_headers": extra,
+	})
+}

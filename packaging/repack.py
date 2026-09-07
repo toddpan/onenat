@@ -5,7 +5,7 @@ import os
 import sys
 import tarfile
 
-REL = "oneNat-r2026.09.01"
+REL = "oneNat-r2026.09.07"
 OUT = os.path.join("dist", f"{REL}.tar.gz")
 
 ENTRIES = [

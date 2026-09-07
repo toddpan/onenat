@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"sort"
@@ -67,9 +68,35 @@ func decodeBody(r *http.Request, v interface{}) error {
 
 type MappingView struct {
 	*Mapping
-	PublicURL string `json:"public_url"`
-	Error     string `json:"error"`
-	AppName   string `json:"app_name,omitempty"` // 关联应用名 (UI 展示)
+	PublicURL    string `json:"public_url"`
+	Error        string `json:"error"`
+	AppName      string `json:"app_name,omitempty"` // 关联应用名 (UI 展示)
+	AuthOverride bool   `json:"auth_override"`      // 实例级凭证覆盖 (UI 徽标)
+	AuthType     string `json:"auth_type,omitempty"`
+}
+
+// MarshalJSON: 内嵌 *Mapping 的密文安全 MarshalJSON 会被提升并遮蔽
+// 默认结构体序列化, 视图自有字段会因此丢失, 故在此显式叠加。
+func (v MappingView) MarshalJSON() ([]byte, error) {
+	base, err := json.Marshal(v.Mapping) // 走 Mapping.MarshalJSON, 无密文
+	if err != nil {
+		return nil, err
+	}
+	obj := map[string]interface{}{}
+	if err := json.Unmarshal(base, &obj); err != nil {
+		return nil, err
+	}
+	obj["public_url"] = v.PublicURL
+	obj["error"] = v.Error
+	if v.AppName != "" {
+		obj["app_name"] = v.AppName
+	}
+	// 视图字段优先: auth_type 已按「覆盖 > 应用默认」富化
+	obj["auth_override"] = v.AuthOverride
+	if v.AuthType != "" {
+		obj["auth_type"] = v.AuthType
+	}
+	return json.Marshal(obj)
 }
 
 type TunnelListItem struct {
@@ -381,13 +408,16 @@ type mappingBody struct {
 	Subdomain  string `json:"subdomain"`
 	Note       string `json:"note"`
 	AppID      string `json:"app_id"` // 必填: 关联应用
+	// Auth 映射级凭证覆盖 (可选): 省略 = 保持现状; auth_type="none" = 清除
+	// 覆盖回退应用默认; 其余 = 设置/替换 (basic/bearer/header/custom)。
+	Auth *AppAuthInput `json:"auth"`
 }
 
 func (b mappingBody) toInput() MappingInput {
 	return MappingInput{
 		Proto: b.Proto, LocalIP: b.LocalIP, LocalPort: b.LocalPort,
 		RemotePort: b.RemotePort, Subdomain: b.Subdomain, Note: b.Note,
-		AppID: b.AppID,
+		AppID: b.AppID, Auth: b.Auth,
 	}
 }
 
@@ -546,14 +576,40 @@ type apiKeyView struct {
 	OwnerName  string     `json:"owner_name"`
 	CreatedAt  time.Time  `json:"created_at"`
 	LastUsedAt *time.Time `json:"last_used_at"`
+	CanReadCred bool      `json:"can_read_cred"`
 }
 
 func (d *Dashboard) apiKeyView(k *ApiKey) apiKeyView {
-	v := apiKeyView{ID: k.ID, Name: k.Name, Key: k.Key, CreatedAt: k.CreatedAt, LastUsedAt: k.LastUsedAt}
+	v := apiKeyView{ID: k.ID, Name: k.Name, Key: k.Key, CreatedAt: k.CreatedAt, LastUsedAt: k.LastUsedAt, CanReadCred: k.CanReadCred}
 	if u := d.store.UserByID(k.OwnerID); u != nil {
 		v.OwnerName = u.Username
 	}
 	return v
+}
+
+// apiUpdateKey patches AI-facing permission flags of one API key.
+// PATCH /api/keys/:id  body {"can_read_cred": true|false}
+func (d *Dashboard) apiUpdateKey(w http.ResponseWriter, r *http.Request) {
+	u := d.UserFromRequest(r)
+	var in struct {
+		CanReadCred *bool `json:"can_read_cred"`
+	}
+	if err := decodeBody(r, &in); err != nil {
+		writeErr(w, http.StatusBadRequest, "请求格式错误")
+		return
+	}
+	if in.CanReadCred == nil {
+		writeErr(w, http.StatusBadRequest, "缺少可更新字段 (can_read_cred)")
+		return
+	}
+	id := pathSeg(r, 2)
+	if err := d.store.UpdateApiKeyPerm(id, u.ID, u.Role == "admin", *in.CanReadCred); err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	d.AuditUser(r, u, "key.update_perm", id, "ok",
+		map[string]string{"can_read_cred": fmt.Sprintf("%v", *in.CanReadCred)})
+	writeJSON(w, http.StatusOK, map[string]string{"ok": "1"})
 }
 
 func (d *Dashboard) apiListKeys(w http.ResponseWriter, r *http.Request) {
@@ -633,6 +689,7 @@ type ResourceTunnel struct {
 }
 
 type ResourceMapping struct {
+	ID        string `json:"id"` // 映射实例 id (凭证端点 /api/v1/mappings/:id/credentials 用)
 	Proto     string `json:"proto"`
 	PublicURL string `json:"public_url"`
 	Local     string `json:"local"`
@@ -640,6 +697,11 @@ type ResourceMapping struct {
 	Error     string `json:"error,omitempty"`
 	// App 内嵌绑定的应用 (名称/类型/认证方式/技能清单); 永不含凭证。
 	App *ResourceApp `json:"app,omitempty"`
+	// AuthOverride=true 表示该映射设置了实例级凭证覆盖, 凭证请取
+	// /api/v1/mappings/:id/credentials (resolved_from=mapping);
+	// false 时取到的也是同一端点 (resolved_from=app), 字段仅为提示。
+	AuthOverride bool   `json:"auth_override"`
+	AuthType     string `json:"auth_type"` // 有效认证类型: 覆盖 ?? 应用默认
 }
 
 // fillAppViews resolves MappingView.AppName for UI rendering.
@@ -674,15 +736,23 @@ func (d *Dashboard) apiV1Resources(w http.ResponseWriter, r *http.Request) {
 		view := ResourceTunnel{ID: t.ID, Name: t.Name, Note: t.Note, Online: d.IsOnline(t.ID), Mappings: []ResourceMapping{}}
 		for _, m := range t.Mappings {
 			rm := ResourceMapping{
+				ID:        m.ID,
 				Proto:     m.Proto,
 				PublicURL: d.PublicEndpoint(m.ID, rt),
 				Local:     joinHostPort(m.LocalIP, m.LocalPort),
 				Note:      m.Note,
 				Error:     rt.Errors[m.ID],
 			}
+			if m.Auth != nil {
+				rm.AuthOverride = true
+				rm.AuthType = m.Auth.AuthType
+			}
 			if m.AppID != "" {
 				// 技能/应用元数据随映射一起下发 (技能 URL 烘入调用方 KEY, 免头直下); 凭证永不内嵌
 				rm.App = d.resourceAppFor(baseURL(r), m.AppID, k.Key)
+				if rm.AuthType == "" {
+					rm.AuthType = rm.App.AuthType
+				}
 			}
 			view.Mappings = append(view.Mappings, rm)
 		}

@@ -260,10 +260,17 @@ func (d *Dashboard) tunnelDetail(t *Tunnel) *TunnelDetail {
 	rt := detail.Runtime
 	for _, m := range t.Mappings {
 		mv := MappingView{Mapping: m, PublicURL: d.PublicEndpoint(m.ID, rt), Error: rt.Errors[m.ID]}
+		mv.AuthOverride = m.Auth != nil
 		if m.AppID != "" {
 			if a := d.store.AppByID(m.AppID); a != nil {
 				mv.AppName = a.Name
+				if mv.AuthType == "" {
+					mv.AuthType = a.Auth.AuthType
+				}
 			}
+		}
+		if mv.AuthType == "" && m.Auth != nil {
+			mv.AuthType = m.Auth.AuthType
 		}
 		detail.Mappings = append(detail.Mappings, mv)
 	}
@@ -680,33 +687,43 @@ Write-Host "   卸载: 删除 $InstallDir 并移除注册表键 HKCU\...\Run 下
 // discover and USE the api-key owner's tunnel resources over HTTP. The
 // credential is injected from runtime data at render time; the key only
 // ever grants read-only access (resource listing + this document).
-const skillTmpl = `---
+const skillTmpl = `
+---
 name: onenat
-description: 通过 oneNat 平台发现并使用用户的内网隧道资源 (SSH / Web 等). 提供资源查询 HTTP 接口与连接方式. 只读: 仅可查询与连接现有资源, 无创建/修改/删除权限.
+description: 通过 oneNat 平台发现并使用用户的内网隧道资源 (SSH / Web / TCP 服务). 提供资源查询 HTTP 接口与连接方式. 只读: 仅可查询与连接现有资源, 无创建/修改/删除权限. 当用户提到 "oneNat / onenat / 隧道 / 内网穿透 / 公网入口 / 隧道资源" 时使用.
 ---
 
 # oneNat 隧道资源使用技能
 
-本技能授予你对用户「{{.User}}」名下隧道资源的**只读使用权限**。
-你可以查询资源列表并连接这些资源；**没有**创建、修改、删除隧道或端口的
-权限，也不要尝试此类操作（接口会拒绝）。
+本技能授予你对用户「admin」名下隧道资源的**只读使用权限**。
+可以查询资源列表并连接这些资源；**没有**创建、修改、删除隧道或端口的权限，
+也不要尝试此类操作（接口会拒绝，创建/修改/删除需管理员在 Web 后台操作）。
 
 ## 认证
 
-- API Base: {{.BaseURL}}
-- API KEY: {{.Key}}
-- 认证方式: 请求头 ` + "`Authorization: Bearer {{.Key}}`" + ` (也支持 ` + "`?key={{.Key}}`" + ` 查询参数)
+- API Base: ` + "`" + `{{.BaseURL}}` + "`" + `
+- API KEY: ` + "`" + `{{.Key}}` + "`" + `
+- 认证方式: 请求头 ` + "`" + `Authorization: Bearer <API KEY>` + "`" + `（也支持 ` + "`" + `?key=<API KEY>` + "`" + ` 查询参数，仅下载类接口）
 
-## 1. 获取资源列表 (隧道 ↔ 应用绑定关系的实时来源)
+## 快速开始
 
-` + "`" + `bash
-curl -s -H "Authorization: Bearer {{.Key}}" {{.BaseURL}}/api/v1/resources
-` + "`" + `
+` + "`" + `` + "`" + `` + "`" + `bash
+# 1. 拉取实时资源列表（唯一实时数据源）
+curl -s -H "Authorization: Bearer {{.Key}}" \
+  {{.BaseURL}}/api/v1/resources
 
-返回 JSON 结构 — **每个映射 (mapping) 内嵌它绑定的应用 ` + "`app`" + `**,
-应用里带技能清单 ` + "`skills[]`" + ` (含下载 url):
+# 2. 用 jq 提取「隧道 → 映射 → 应用」速览（无 jq 时直接读 JSON）
+curl -s -H "Authorization: Bearer {{.Key}}" \
+  {{.BaseURL}}/api/v1/resources | \
+  jq -r '.tunnels[] | "\(.name) online=\(.online)", (.mappings[] | "  \(.proto) \(.public_url) -> \(.local)  app=\(.app.name // "未绑定") [\(.app.type // "-")]")'
+` + "`" + `` + "`" + `` + "`" + `
 
-` + "`" + `json
+## 1. 资源列表（实时数据源）
+
+` + "`" + `GET /api/v1/resources` + "`" + ` 返回结构（实测）——每个映射 (mapping) 内嵌它绑定的应用 ` + "`" + `app` + "`" + `，
+应用里带技能清单 ` + "`" + `skills[]` + "`" + `（含已带认证的下载 url）：
+
+` + "`" + `` + "`" + `` + "`" + `json
 {
   "base_url": "{{.BaseURL}}",
   "tunnels": [
@@ -729,64 +746,102 @@ curl -s -H "Authorization: Bearer {{.Key}}" {{.BaseURL}}/api/v1/resources
     }
   ]
 }
-` + "`" + `
+` + "`" + `` + "`" + `` + "`" + `
 
-> 映射没有绑定应用时 ` + "`app`" + ` 字段缺省 —— 此时端口用途请向用户确认。
+字段语义（实测确认）：
+
+- ` + "`" + `online=false` + "`" + ` 或映射缺 ` + "`" + `public_url` + "`" + ` ⇒ 客户端当前离线，该资源**暂不可达**：
+  如实告知用户，**不要重试**，更不要反复探测端口。
+- 映射没有绑定应用时 ` + "`" + `app` + "`" + ` 字段缺省 ⇒ 端口用途向用户确认，不要盲连。
+
+### 绑定校验（重要，防止用错技能）
+
+映射与应用的绑定由主人在后台手工维护，**可能绑错**。使用前做一致性检查：
+
+- ` + "`" + `app.type` + "`" + ` 应与映射用途吻合（` + "`" + `local` + "`" + ` 端口 22 → ` + "`" + `ssh` + "`" + `；3000~9000 段 web 端口 → ` + "`" + `http-api` + "`" + ` 等）；
+- 发现疑似绑错（如 DSH 端口 3080 绑了 ` + "`" + `SSH Server` + "`" + ` 应用）：
+  1. 用 ` + "`" + `GET /api/v1/apps` + "`" + ` 交叉比对，按 ` + "`" + `local` + "`" + ` 端口与 ` + "`" + `app.internal_url` + "`" + ` 匹配出正确应用；
+  2. 按正确应用的技能文件操作该端口；
+  3. 提醒主人在 Web 后台修正绑定。
 
 ## 2. 如何连接
 
-- ` + "`proto=tcp`" + ` (SSH/TCP 类): 取 public_url 里的 host 与 port。
-  SSH 示例: ` + "`ssh user@host -p PORT`" + ` (登录凭据由用户另行提供，技能只提供入口)。
-  其他 TCP 服务用 ` + "`nc host PORT`" + ` 探测或连接。
-- ` + "`proto=http`" + ` (Web 类): 直接 ` + "`curl http://public_url`" + ` 访问。
-- 应用有自己的服务地址时以 ` + "`app.internal_url`" + ` 为准 (公网入口转发到它)。
-- ` + "`online=false`" + ` 或映射缺少 public_url 时，说明客户端当前离线，该资源暂不可达，
-  请告知用户，不要反复重试。
+- ` + "`" + `proto=tcp` + "`" + `（SSH/TCP 类）: 取 ` + "`" + `public_url` + "`" + ` 里的 host 与 port。
+  SSH: ` + "`" + `ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 <user>@<host> -p <port>` + "`" + `
+  （登录凭据由用户另行提供或走第 4 节凭证接口，技能只提供入口）。
+  其他 TCP 服务用 ` + "`" + `nc -z -G 3 <host> <port>` + "`" + ` 单次探测。
+- ` + "`" + `proto=http` + "`" + `（Web 类）: 直接 ` + "`" + `curl http://<public_url>` + "`" + `。
+- **tcp 隧道也能跑 HTTP**：当映射的 ` + "`" + `local` + "`" + ` 指向 web 端口（如 ` + "`" + `127.0.0.1:3080` + "`" + `）
+  或绑定应用 ` + "`" + `type=http-api` + "`" + ` 时，raw TCP 转发可直接承载 HTTP——
+  把应用技能里的 ` + "`" + `http://127.0.0.1:<port>` + "`" + ` 换成 ` + "`" + `http://<host>:<public_port>` + "`" + ` 即可，路径不变。
+- 应用有自己的服务地址时以 ` + "`" + `app.internal_url` + "`" + ` 为准（公网入口转发到它）。
+- **公网端口是动态的**：客户端重连后端口会变（实测 44425→38405）。
+  每次连接前都重新拉取 ` + "`" + `/api/v1/resources` + "`" + ` 拿最新端口，不要缓存旧端口。
+- ` + "`" + `online=false` + "`" + ` ⇒ 不可达，告知用户即可（见第 1 节）。
 
-## 3. 获取应用技能 (先读技能, 再用资源)
+## 3. 应用技能（先读技能，再用资源）
 
-**平台的应用与技能是动态维护的**：主人随时会新增应用、更新技能、调整隧道与应用
-的绑定。因此——
+**平台的应用与技能是动态维护的**：主人随时会新增应用、更新技能、调整绑定。
+因此——绑定关系与技能清单的实时来源是 ` + "`" + `/api/v1/resources` + "`" + `；
+本文档及 ` + "`" + `/skill/index.md` + "`" + ` 只是下载那一刻的快照；隔久了或有变更就重新拉取。
 
-- **绑定关系与技能清单的实时来源是 ` + "`" + `/api/v1/resources` + "`" + `** (每个映射的 ` + "`" + `app` + "`" + ` 字段)；
-- 本文档末尾的「应用目录」以及 ` + "`" + `/skill/index.md` + "`" + ` 都是**下载那一刻的快照**；
-- 距离上次获取较久或刚做过重要变更时，请重新拉取 resources 或 index.md，
-  以拿到最新的应用与技能。
+每个端口映射背后登记了一个「应用」（数据库 / API / SSH 等真实系统）。
+**使用任何应用之前，必须先下载并阅读它的技能文件**——技能文件由应用主人维护，
+包含真实接口地址、认证方式、调用示例与注意事项，是唯一权威说明。
+技能文件与你的猜测冲突时，**以技能文件为准**；技能没提的能力不要臆造。
 
-每个端口映射背后登记了一个「应用」(数据库 / API / SSH 等真实系统)。
-**使用任何应用之前，必须先下载并阅读它的技能文件**——技能文件由应用的主人维护，
-包含真实的接口地址、认证方式、调用示例与注意事项，是唯一权威说明。
+三种获取方式（任选其一）：
 
-三种获取方式 (任选其一):
+` + "`" + `` + "`" + `` + "`" + `bash
+# 1) 资源列表直达（推荐）: app.skills[].url 已带认证
+curl -s "<app.skills[].url>" -o <技能名>
 
-1. 资源列表直达 (推荐): ` + "`/api/v1/resources`" + ` 返回里每个映射的
-   ` + "`app.skills[].url`" + ` 就是技能下载链接 (已带认证)，直接下载:
-   ` + "`" + `bash
-   curl -s "<app.skills[].url>" -o <技能名>
-   ` + "`" + `
-2. 应用目录: 先列应用再按名字取内容:
-   ` + "`" + `bash
-   curl -s -H "Authorization: Bearer {{.Key}}" {{.BaseURL}}/api/v1/apps
-   curl -s -H "Authorization: Bearer {{.Key}}" {{.BaseURL}}/api/v1/apps/<app_id>/skills/<技能名>/content
-   ` + "`" + `
-3. 平台总索引 (Markdown 目录, 全部应用+全部技能):
-   ` + "`" + `bash
-   curl -s "{{.BaseURL}}/skill/index.md?key={{.Key}}"
-   ` + "`" + `
+# 2) 应用目录: 先列应用再按 id 取内容
+curl -s -H "Authorization: Bearer {{.Key}}" \
+  {{.BaseURL}}/api/v1/apps
+curl -s -H "Authorization: Bearer {{.Key}}" \
+  {{.BaseURL}}/api/v1/apps/<app_id>/skills/<技能名>/content
 
-规则:
-- 技能文件与你的猜测冲突时，**以技能文件为准**；技能没提的能力不要臆造。
-- 需要应用的登录凭证时: ` + "`GET /api/v1/apps/<app_id>/credentials`" + `。
-  默认返回 403 (需应用主人为该 API KEY 开启「允许读取凭证」)；开启后仍受限速与审计约束。
-- 平台对 AI 只读；技能文件里描述的写操作属于应用自身的能力，按技能说明执行即可。
+# 3) 平台总索引（Markdown 目录，全部应用+全部技能）
+curl -s "{{.BaseURL}}/skill/index.md?key={{.Key}}"
+` + "`" + `` + "`" + `` + "`" + `
 
-## 4. 行为约定
+## 4. 凭证
 
-1. 只读: 仅查询与连接现有资源；任何创建/修改/删除请求都应拒绝并告知用户需要管理员在 Web 后台操作。
-2. 列表展示用表格: 名称 / 类型 / 公网入口 / 状态 / 备注。
-3. 使用一个应用前先读它的技能文件 (见第 3 节)，不要盲连。
-4. API KEY 属于敏感凭据: 不要把它打印到无关输出或转发给第三方。
+需要应用登录凭证时：` + "`" + `GET /api/v1/apps/<app_id>/credentials` + "`" + `。
+**同一应用被多条映射指向不同实例时（凭证各异）**，改用映射级端点：
+` + "`" + `GET /api/v1/mappings/<mapping_id>/credentials` + "`" + ` —— 它返回该映射的
+**有效凭证**（映射覆盖优先，回退应用默认），响应带 ` + "`" + `resolved_from` + "`" + `
+说明来源；resources 里映射的 ` + "`" + `auth_override` + "`" + ` 字段提示是否存在独立凭证。
+
+- 默认返回 ` + "`" + `403 {"error":"该 API KEY 无凭证读取权限; 请用户在后台为 KEY 开启「允许读取凭证」"}` + "`" + `（实测）；
+- 主人开启后仍受限速（5 次/分）与审计日志约束；
+- 拿到凭证后用 ` + "`" + `sshpass -p <密码> ssh ...` + "`" + ` 等方式使用，**不要**把密码写入脚本文件或打印到输出。
+
+## 5. 行为约定
+
+1. 只读：仅查询与连接现有资源；任何创建/修改/删除请求都应拒绝，
+   并告知用户需要管理员在 Web 后台操作。
+2. 列表展示用表格：名称 / 类型 / 公网入口 / 状态 / 备注。
+3. 使用一个应用前先读它的技能文件（见第 3 节），不要盲连。
+4. 离线资源只报告一次，不重试、不反复探测。
+5. API KEY 属于敏感凭据：不要把它打印到无关输出或转发给第三方。
+
+## 6. 接口速查
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | ` + "`" + `/api/v1/resources` + "`" + ` | 隧道+映射+绑定应用的实时清单（唯一实时数据源） |
+| GET | ` + "`" + `/api/v1/apps` + "`" + ` | 全部应用目录（含技能清单） |
+| GET | ` + "`" + `/api/v1/apps/:id/skills/:name/content` + "`" + ` | 下载应用技能文件 |
+| GET | ` + "`" + `/api/v1/apps/:id/credentials` + "`" + ` | 读取应用凭证（默认 403，主人开启后可用） |
+| GET | ` + "`" + `/api/v1/mappings/:id/credentials` + "`" + ` | 读取映射实例的有效凭证（覆盖优先，回退应用默认） |
+| GET | ` + "`" + `/skill/index.md` + "`" + ` | 全部应用+技能的 Markdown 总索引（快照） |
+| GET | ` + "`" + `/skill/onenat.md` + "`" + ` | 本技能文档（快照） |
+
+平台对 AI 只读；技能文件里描述的写操作属于应用自身的能力，按技能说明执行即可。
 `
+
 
 // keysPageData powers the API-key management page.
 type keysPageData struct {

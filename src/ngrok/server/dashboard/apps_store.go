@@ -101,11 +101,11 @@ func appValidAuthType(t string) bool {
 // AppAuthInput carries plaintext credentials into the store; the store seals
 // them immediately. Plaintext never lands in the store file.
 type AppAuthInput struct {
-	AuthType     string
-	Username     string
-	Password     string // plaintext in transit only (local HTTP/HTTPS to dashboard)
-	ApiKey       string
-	ExtraHeaders map[string]string
+	AuthType     string            `json:"auth_type"`
+	Username     string            `json:"username"`
+	Password     string            `json:"password"` // plaintext in transit only (local HTTP/HTTPS to dashboard)
+	ApiKey       string            `json:"api_key"`
+	ExtraHeaders map[string]string `json:"extra_headers"`
 }
 
 // AppInput is the create/update payload for an application.
@@ -430,16 +430,62 @@ func (s *Store) RevealAppCredential(id string) (username, password, apiKey strin
 	if a == nil {
 		return "", "", "", nil, fmt.Errorf("应用不存在")
 	}
-	username = a.Auth.Username
-	if password, err = OpenSecret(s.credKey, a.Auth.PasswordEnc); err != nil && err != errNotSealed {
+	return s.revealAuthLocked(&a.Auth)
+}
+
+// RevealMappingCredential 返回映射上游实例的有效凭证: 映射级覆盖优先,
+// 否则回退绑定应用默认。source 标明凭证来源 ("mapping" | "app")。
+func (s *Store) RevealMappingCredential(mappingID string) (authType, username, password, apiKey, source string, extra map[string]string, err error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.credKey == nil {
+		err = fmt.Errorf("凭证主密钥未初始化")
+		return
+	}
+	var m *Mapping
+	for _, t := range s.data.Tunnels {
+		for _, mm := range t.Mappings {
+			if mm.ID == mappingID {
+				m = mm
+				break
+			}
+		}
+		if m != nil {
+			break
+		}
+	}
+	if m == nil {
+		err = fmt.Errorf("端口映射不存在")
+		return
+	}
+	auth := m.Auth
+	source = "mapping"
+	if auth == nil {
+		a := s.appByIDLocked(m.AppID)
+		if a == nil {
+			err = fmt.Errorf("映射未关联应用, 无可用凭证")
+			return
+		}
+		auth = &a.Auth
+		source = "app"
+	}
+	authType = auth.AuthType
+	username, password, apiKey, extra, err = s.revealAuthLocked(auth)
+	return
+}
+
+// revealAuthLocked 解封一份 AppAuth 密文; 调用方须持有读锁且已校验 credKey。
+func (s *Store) revealAuthLocked(auth *AppAuth) (username, password, apiKey string, extra map[string]string, err error) {
+	username = auth.Username
+	if password, err = OpenSecret(s.credKey, auth.PasswordEnc); err != nil && err != errNotSealed {
 		return "", "", "", nil, err
 	}
-	if apiKey, err = OpenSecret(s.credKey, a.Auth.ApiKeyEnc); err != nil && err != errNotSealed {
+	if apiKey, err = OpenSecret(s.credKey, auth.ApiKeyEnc); err != nil && err != errNotSealed {
 		return "", "", "", nil, err
 	}
-	if len(a.Auth.ExtraHeaders) > 0 {
+	if len(auth.ExtraHeaders) > 0 {
 		extra = map[string]string{}
-		for k, v := range a.Auth.ExtraHeaders {
+		for k, v := range auth.ExtraHeaders {
 			pv, err := OpenSecret(s.credKey, v)
 			if err != nil && err != errNotSealed {
 				return "", "", "", nil, err

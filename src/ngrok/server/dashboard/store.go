@@ -33,6 +33,37 @@ type Mapping struct {
 	Subdomain  string `json:"subdomain"`   // http/https only
 	Note       string `json:"note"`
 	AppID      string `json:"app_id,omitempty"` // 关联应用 (app-*); 新建映射必选
+	// Auth 为映射级凭证覆盖 (可选)。一个应用可被多条映射指向不同机器上的
+	// 不同实例 (如两台机器各跑一个 DSH, apiKey 不同), 凭证跟实例走:
+	// 有效凭证 = 映射覆盖 ?? 应用默认。密文形态, 明文永不落盘。
+	Auth *AppAuth `json:"auth,omitempty"`
+}
+
+// MarshalJSON 隐藏密文字段 (auth 不出现在任何 API 视图), 只输出业务字段
+// 加两个派生标记: auth_override (是否有映射级覆盖) 与 auth_type
+// (覆盖自身的认证类型; 无覆盖时为空, 有效类型由上层结合绑定应用富化)。
+func (m *Mapping) MarshalJSON() ([]byte, error) {
+	type out struct {
+		ID           string `json:"id"`
+		Proto        string `json:"proto"`
+		LocalIP      string `json:"local_ip"`
+		LocalPort    int    `json:"local_port"`
+		RemotePort   int    `json:"remote_port"`
+		Subdomain    string `json:"subdomain"`
+		Note         string `json:"note"`
+		AppID        string `json:"app_id,omitempty"`
+		AuthOverride bool   `json:"auth_override"`
+		AuthType     string `json:"auth_type"`
+	}
+	o := out{
+		ID: m.ID, Proto: m.Proto, LocalIP: m.LocalIP, LocalPort: m.LocalPort,
+		RemotePort: m.RemotePort, Subdomain: m.Subdomain, Note: m.Note, AppID: m.AppID,
+	}
+	if m.Auth != nil {
+		o.AuthOverride = true
+		o.AuthType = m.Auth.AuthType
+	}
+	return json.Marshal(o)
 }
 
 type Tunnel struct {
@@ -494,6 +525,9 @@ type MappingInput struct {
 	Subdomain  string
 	Note       string
 	AppID      string // 关联应用; 新建映射必填
+	// Auth 映射级凭证覆盖: nil = 不改动既有状态 (Add 时为无覆盖);
+	// AuthType=="none" = 清除覆盖回退应用默认; 其余 = 封存并设置。
+	Auth *AppAuthInput
 }
 
 func isLoopbackHost(host string) bool {
@@ -595,6 +629,17 @@ func (s *Store) AddMapping(tunnelID string, in MappingInput) (*Mapping, error) {
 	if err := s.validateAppBindingLocked(in.AppID, t); err != nil {
 		return nil, err
 	}
+	var mauth *AppAuth
+	if in.Auth != nil && in.Auth.AuthType != "none" {
+		if err := validateAuthInput(in.Auth); err != nil {
+			return nil, err
+		}
+		sealed, err := s.sealAuthLocked(*in.Auth)
+		if err != nil {
+			return nil, err
+		}
+		mauth = &sealed
+	}
 	m := &Mapping{
 		ID:         NewMappingID(),
 		Proto:      in.Proto,
@@ -604,6 +649,7 @@ func (s *Store) AddMapping(tunnelID string, in MappingInput) (*Mapping, error) {
 		Subdomain:  in.Subdomain,
 		Note:       in.Note,
 		AppID:      in.AppID,
+		Auth:       mauth,
 	}
 	t.Mappings = append(t.Mappings, m)
 	return m, s.saveLocked()
@@ -634,6 +680,21 @@ func (s *Store) UpdateMapping(tunnelID, mappingID string, in MappingInput) error
 			m.Subdomain = in.Subdomain
 			m.Note = in.Note
 			m.AppID = in.AppID
+			// 凭证覆盖三态: nil=保持不变; none=清除; 其余=重新封存
+			if in.Auth != nil {
+				if in.Auth.AuthType == "none" {
+					m.Auth = nil
+				} else {
+					if err := validateAuthInput(in.Auth); err != nil {
+						return err
+					}
+					sealed, err := s.sealAuthLocked(*in.Auth)
+					if err != nil {
+						return err
+					}
+					m.Auth = &sealed
+				}
+			}
 			return s.saveLocked()
 		}
 	}
@@ -724,6 +785,21 @@ func (s *Store) DeleteApiKey(id, ownerUserID string, admin bool) error {
 	for i, k := range s.data.ApiKeys {
 		if k.ID == id && (admin || k.OwnerID == ownerUserID) {
 			s.data.ApiKeys = append(s.data.ApiKeys[:i:i], s.data.ApiKeys[i+1:]...)
+			return s.saveLocked()
+		}
+	}
+	return fmt.Errorf("API KEY 不存在")
+}
+
+// UpdateApiKeyPerm updates the AI-facing permission flags of one API key.
+// Only the owner (or an admin) may change them. CanReadCred gates the
+// /api/v1/apps/:id/credentials endpoint (rate-limited + audited there).
+func (s *Store) UpdateApiKeyPerm(id, ownerUserID string, admin, canReadCred bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, k := range s.data.ApiKeys {
+		if k.ID == id && (admin || k.OwnerID == ownerUserID) {
+			k.CanReadCred = canReadCred
 			return s.saveLocked()
 		}
 	}

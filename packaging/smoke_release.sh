@@ -3,7 +3,7 @@
 set -euo pipefail
 cd /Users/tsbj/feyanggit/ngrok
 
-REL=oneNat-r2026.09.01
+REL=oneNat-r2026.09.07
 rm -rf /tmp/reltest && mkdir -p /tmp/reltest
 tar -C /tmp/reltest -xzf dist/$REL.tar.gz
 cd /tmp/reltest/$REL

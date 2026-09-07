@@ -307,10 +307,14 @@ func (d *Dashboard) route(w http.ResponseWriter, r *http.Request) {
 	case p == "/api/keys" && m == http.MethodPost:
 		d.requireUser(http.HandlerFunc(d.apiCreateKey)).ServeHTTP(w, r)
 	case strings.HasPrefix(p, "/api/keys/"):
-		if methodMismatch(w, r, http.MethodDelete) {
-			return
+		switch r.Method {
+		case http.MethodDelete:
+			d.requireUser(d.apiHandler(d.apiDeleteKey)).ServeHTTP(w, r)
+		case http.MethodPatch, http.MethodPut:
+			d.requireUser(d.apiHandler(d.apiUpdateKey)).ServeHTTP(w, r)
+		default:
+			methodMismatch(w, r, http.MethodDelete, http.MethodPatch, http.MethodPut)
 		}
-		d.requireUser(d.apiHandler(d.apiDeleteKey)).ServeHTTP(w, r)
 
 	// ---------- AI agent 只读接口 (API KEY 鉴权) ----------
 	case p == "/api/v1/resources":
@@ -319,6 +323,8 @@ func (d *Dashboard) route(w http.ResponseWriter, r *http.Request) {
 		d.apiV1Apps(w, r)
 	case strings.HasPrefix(p, "/api/v1/apps/"):
 		d.routeAppV1(w, r)
+	case strings.HasPrefix(p, "/api/v1/mappings/"):
+		d.apiV1MappingCredentials(w, r)
 	case p == "/skill/onenat.md":
 		d.skillDoc(w, r)
 	case p == "/skill/index.md":

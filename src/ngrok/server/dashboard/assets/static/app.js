@@ -287,6 +287,15 @@ async function delKey(id, name) {
   catch (e) { toast(e.message, true); }
 }
 
+async function toggleKeyCred(id, allow) {
+  try {
+    await api('PATCH', '/api/keys/' + id, { can_read_cred: allow });
+    toast(allow ? '已允许该 KEY 读取应用凭证 (限速 5 次/分, 全程审计)'
+                : '已禁止该 KEY 读取应用凭证');
+    location.reload();
+  } catch (e) { toast(e.message, true); }
+}
+
 function showSkillPrompt(id) {
   const prompt = (window.KEY_PROMPTS || {})[id];
   if (!prompt) { toast('提示词不存在', true); return; }
@@ -338,3 +347,43 @@ async function delUser(username) {
   try { await api('DELETE', '/api/users/' + u.id); location.reload(); }
   catch (e) { toast(e.message, true); }
 }
+
+// ---------- 密码/密钥明文切换 (小眼睛) ----------
+
+function attachSecretEye(inp) {
+  if (!inp || inp.dataset.eyeBound) return;
+  inp.dataset.eyeBound = '1';
+  const wrap = document.createElement('span');
+  wrap.className = 'eye-wrap';
+  inp.parentNode.insertBefore(wrap, inp);
+  wrap.appendChild(inp);
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'eye-btn';
+  btn.textContent = '👁';
+  btn.title = '显示明文';
+  btn.setAttribute('aria-label', '显示明文');
+  btn.addEventListener('click', () => {
+    const show = inp.type === 'password';
+    inp.type = show ? 'text' : 'password';
+    btn.classList.toggle('eye-on', show);
+    btn.title = show ? '隐藏' : '显示明文';
+  });
+  wrap.appendChild(btn);
+}
+
+function scanSecretEyes(root) {
+  (root || document).querySelectorAll('input[type=password]').forEach(attachSecretEye);
+}
+
+document.addEventListener('DOMContentLoaded', () => scanSecretEyes());
+// 应用凭证/映射实例凭证等弹窗字段为动态注入, 用观察器补挂眼睛
+new MutationObserver(muts => {
+  for (const mu of muts) {
+    for (const n of mu.addedNodes) {
+      if (n.nodeType !== 1) continue;
+      if (n.matches && n.matches('input[type=password]')) attachSecretEye(n);
+      if (n.querySelectorAll) n.querySelectorAll('input[type=password]').forEach(attachSecretEye);
+    }
+  }
+}).observe(document.documentElement, { childList: true, subtree: true });

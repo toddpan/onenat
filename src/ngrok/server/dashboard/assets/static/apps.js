@@ -325,6 +325,67 @@ function renderAppPrompt() {
 // ---------- 映射表单「关联应用」注入 ----------
 // 包装 app.js 的 showMappingModal / submitMapping: 插入必选应用下拉,
 // 并把选中的 app_id 注入提交的 body。
+// 「实例凭证」区: 同一应用被多条映射指向不同机器实例时 (如两台 DSH,
+// apiKey 各异), 可在映射级覆盖应用默认凭证; 凭证跟实例走。
+
+  function injectCredSection(mid) {
+    const m = mid ? (window.PAGE.mappings || []).find(x => x.id === mid) : null;
+    const appSel = document.getElementById('m-app');
+    const anchor = appSel || document.getElementById('m-note');
+    if (!anchor) return;
+    const hasOverride = !!(m && m.auth_override);
+    const t = (m && m.auth_type) || 'bearer';
+    anchor.insertAdjacentHTML('afterend', `
+      <label class="field">实例凭证
+        <select id="m-auth-mode" onchange="onAuthModeChange()">
+          <option value="inherit" ${hasOverride ? '' : 'selected'}>继承应用默认凭证</option>
+          <option value="override" ${hasOverride ? 'selected' : ''}>实例独立凭证 (覆盖应用默认)</option>
+        </select>
+      </label>
+      <div id="m-auth-fields" class="${hasOverride ? '' : 'hidden'}">
+        <label class="field">认证类型
+          <select id="m-auth-type">
+            <option value="bearer" ${t === 'bearer' ? 'selected' : ''}>Bearer / API Key</option>
+            <option value="basic" ${t === 'basic' ? 'selected' : ''}>Basic (用户名+密码)</option>
+            <option value="header" ${t === 'header' ? 'selected' : ''}>自定义 Header</option>
+          </select>
+        </label>
+        <label class="field">用户名 (basic 必填)
+          <input id="m-auth-user" autocomplete="off">
+        </label>
+        <label class="field">密码
+          <input id="m-auth-pass" type="password" autocomplete="new-password">
+        </label>
+        <label class="field">API Key
+          <input id="m-auth-ak" type="password" autocomplete="new-password">
+        </label>
+        <div class="muted small" style="margin:-4px 0 8px">密钥加密存储, 仅经 /api/v1/mappings/:id/credentials 限速读取 (全程审计)</div>
+      </div>`);
+  }
+
+  window.onAuthModeChange = function () {
+    const f = document.getElementById('m-auth-fields');
+    if (f) f.classList.toggle('hidden', document.getElementById('m-auth-mode').value !== 'override');
+  };
+
+  // 计算提交时的 auth 补丁: undefined = 不触碰; {auth_type:"none"} = 清除覆盖
+  function buildAuthPatch(mid) {
+    const mode = document.getElementById('m-auth-mode');
+    if (!mode) return undefined;
+    const m = mid ? (window.PAGE.mappings || []).find(x => x.id === mid) : null;
+    if (mode.value === 'inherit') {
+      return m && m.auth_override ? { auth_type: 'none' } : undefined;
+    }
+    const auth = {
+      auth_type: document.getElementById('m-auth-type').value,
+      username: document.getElementById('m-auth-user').value.trim(),
+      password: document.getElementById('m-auth-pass').value,
+      api_key: document.getElementById('m-auth-ak').value,
+    };
+    const allBlank = !auth.username && !auth.password && !auth.api_key;
+    if (allBlank && m && m.auth_override) return undefined; // 编辑时全留空 = 保持已存覆盖
+    return auth;
+  }
 
 (function () {
   function injectAppSelect(mid) {
@@ -352,6 +413,7 @@ function renderAppPrompt() {
       window.showMappingModal = function (mid) {
         origShow(mid);
         injectAppSelect(mid);
+        injectCredSection(mid);
       };
     }
     const origSubmit = window.submitMapping;
@@ -360,9 +422,13 @@ function renderAppPrompt() {
         const sel = document.getElementById('m-app');
         if (sel && !sel.value) { toast('请选择关联应用', true); return; }
         if (!sel) return origSubmit(mid);
+        const authPatch = buildAuthPatch(mid);
         const origApi = window.api;
         window.api = async function (method, url, body) {
-          if (body && typeof body === 'object') body.app_id = sel.value;
+          if (body && typeof body === 'object') {
+            body.app_id = sel.value;
+            if (authPatch !== undefined) body.auth = authPatch;
+          }
           return origApi(method, url, body);
         };
         try { return origSubmit(mid); }
