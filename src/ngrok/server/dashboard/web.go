@@ -551,7 +551,10 @@ RestartSec=3
 WantedBy=multi-user.target
 UNIT
   systemctl daemon-reload
-  systemctl enable --now ngrok-client
+  systemctl enable ngrok-client >/dev/null 2>&1
+  # 重装场景: --now 不会重启已运行的服务, 旧进程会一直持有内存里的旧密钥/旧二进制
+  # (表现为 "Failed to authenticate ... Invalid authentication token"), 必须 restart 生效
+  systemctl restart ngrok-client
   echo "   服务: ngrok-client (systemd)。查看: systemctl status ngrok-client"
 elif [ "$os" = "darwin" ]; then
   PLIST="$HOME/Library/LaunchAgents/com.ngrok.client.plist"
