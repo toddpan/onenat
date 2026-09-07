@@ -64,7 +64,7 @@
             <tr>
               <td class="mono">{{.LocalIP}}:{{.LocalPort}}</td>
               <td class="mono">{{if .PublicURL}}{{.PublicURL}}{{else}}—{{end}}</td>
-              <td>{{if .AppName}}<a class="chip chip-app" href="/apps/{{.AppID}}">{{.AppName}}</a>{{else}}<span class="muted small">未关联</span>{{end}}</td>
+              <td>{{if .AppName}}<a class="chip chip-app" href="/apps/{{.AppID}}">{{.AppName}}</a>{{if .AuthOverride}} <span class="badge badge-lock" title="该映射使用实例级独立凭证, 凭证读取走 /api/v1/mappings/:id/credentials">独立凭证</span>{{end}}{{else}}<span class="muted small">未关联</span>{{end}}</td>
               <td>{{.Note}}</td>
               <td>{{if .Error}}<span class="badge badge-err" title="{{.Error}}">错误</span>
                   {{else if .PublicURL}}<span class="badge badge-on">已开通</span>

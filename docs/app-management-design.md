@@ -377,7 +377,7 @@ Skills []*SkillFile `json:"skills,omitempty"`
 - E2E 回归扩展（test-dashboard-e2e.sh 82 项断言全通过）。
 
 ### Phase 2 — 授权细化与体验
-- API KEY 应用级 scope + 「允许读取凭证」开关（数据层与 v1 API 已随 Phase 1 落地 `app_scopes`/`can_read_cred`；keys 页 UI 待做）；
+- API KEY 应用级 scope + 「允许读取凭证」开关（数据层与 v1 API 已随 Phase 1 落地 `app_scopes`/`can_read_cred`；✅ 「允许读取凭证」开关已落地：keys 页徽章开关 + `PATCH /api/keys/:id`（body `{"can_read_cred":bool}`，owner/admin，写入审计 `key.update_perm`），凭证读取走 `cred.read` 审计；「可见应用范围」UI 仍待做）；
 - `/skill/index.md` 平台总索引（✅ 已随 Phase 1 落地）；
 - 技能版本历史（保留最近 5 版，可回滚）；
 - 主密钥轮换管理命令；审计日志查询页（admin）。

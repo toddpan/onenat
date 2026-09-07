@@ -94,7 +94,7 @@
 
 ```bash
 # 下载并解压
-tar -xzf oneNat-r2026.09.01.tar.gz && cd oneNat-r2026.09.01
+tar -xzf oneNat-r2026.09.07.tar.gz && cd oneNat-r2026.09.07
 
 # 启动服务 (默认端口: 隧道 4443 / 管理后台 18080)
 DOMAIN=你的服务器IP_或域名 WEB_ADMIN_PASS=自定义管理员密码 bash start-onenat.sh

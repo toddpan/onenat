@@ -1,4 +1,4 @@
-# oneNat 服务端发行包 r2026.09.01
+# oneNat 服务端发行包 r2026.09.07
 
 公网隧道服务端 + Web 管理后台 + 客户端一键安装分发 + AI SKILL，开箱即用。
 
@@ -9,12 +9,16 @@
 - 客户端一键安装: Linux/macOS/Windows 各一行命令, 自动下载+配置+常驻
 - **AI SKILL**: 用户自建 API KEY, 复制一行提示词给 AI 助手, AI 即可
   只读查询并使用你名下的隧道资源 (SSH/Web 公网入口); 无任何创建/修改权限
+- **实例级凭证 (r2026.09.07)**: 同一应用多条映射指向不同机器实例时, 可在
+  映射上覆盖独立凭证 (凭证跟实例走); AI 经 `GET /api/v1/mappings/:id/credentials`
+  取「映射覆盖 ?? 应用默认」的有效凭证, 开关可控 (KEY 页「允许读取凭证」)、
+  限速 5 次/分、逐次审计
 - 可观测: 在线状态、最近连接记录、近 7 天流量
 
 ## 包内容
 
 ```
-oneNat-r2026.09.01/
+oneNat-r2026.09.07/
 ├── start-onenat.sh      # 启动脚本 (Linux/macOS, 自动选择平台二进制, nohup 常驻)
 ├── start-onenat.bat     # 启动脚本 (Windows, 前台运行, Ctrl+C 停止)
 ├── stop-onenat.sh       # 停止脚本 (Linux/macOS; Windows 直接关窗口或 Ctrl+C)
@@ -45,8 +49,8 @@ oneNat-r2026.09.01/
 
 ```bash
 # 1. 解压
-tar xzf oneNat-r2026.09.01.tar.gz
-cd oneNat-r2026.09.01
+tar xzf oneNat-r2026.09.07.tar.gz
+cd oneNat-r2026.09.07
 
 # 2. 启动 (默认: 隧道口 4443 / 公网 http 80 / 管理后台 18080)
 bash start-onenat.sh
@@ -181,7 +185,7 @@ sudo systemctl enable --now onenat
 
 ## 版本信息
 
-- 发行标识：r2026.09.01
+- 发行标识：r2026.09.07
 - 协议版本：ngrok v1.x（Proto 2 / 1.7 系改造版，含 agent 网关与管理后台扩展）
 - 已知说明：流量统计与连接记录为内存态（服务重启清零）；管理后台数据为
   JSON 文件存储，适合中小规模（数十用户/数百隧道）。
