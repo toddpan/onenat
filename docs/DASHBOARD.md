@@ -349,6 +349,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "& ([scriptblock]::Create
    - 其他 → nohup 兜底并提示；
 5. 打印结果卡片（在线状态 + 公网地址查询命令）。
 
+**幂等重装**：脚本可在同一台机器重复执行（换密钥/升级二进制后重跑即可）。
+systemd 分支用 `enable + restart` 而非 `enable --now`——`--now` 不会重启已运行的
+服务，旧进程会继续持有内存里的旧密钥，表现为
+`Failed to authenticate to server: Invalid authentication token` 且重装"成功"却不上线；
+launchd 分支 unload+load、nohup 分支 pkill 后重启，同理保证新配置生效。
+
 KEY 会出现在目标机 shell 历史里——文档注明可用环境变量
 `TUNNEL_ID/KEY curl ... | bash` 的替代形态。
 
