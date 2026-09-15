@@ -159,6 +159,25 @@ func (d *Dashboard) renderSkillSkeleton(appType, appName string) (string, error)
 	return b.String(), nil
 }
 
+// builtinSSHSkillRev 内置 SSH 技能模板版本号。文档里会写入
+// `<!-- builtin-rev: ... -->` 标记: 平台升级后可用 builtinSSHSkillStale()
+// 找出仍是旧版内置模板的存量应用(用户自己改写过的文档不会被误判)。
+const builtinSSHSkillRev = "2026-09-15-cred2"
+
+// builtinSSHSkillStale 判断一份已存技能是否需要按当前模板刷新:
+// 只认"仍是平台内置(带来源标记)且版本落后"的文档; 不含内置标记的视为
+// 主人自己写/大改过的文档, 一律返回 false(不覆盖)。
+func builtinSSHSkillStale(content string) bool {
+	if !strings.Contains(content, "来源: oneNat 平台内置模板") {
+		return false
+	}
+	if strings.Contains(content, "builtin-rev: "+builtinSSHSkillRev) {
+		return false
+	}
+	// 旧版内置文档没有"映射实例凭证"章节 —— 正是本次要补齐的关键信息
+	return !strings.Contains(content, "映射实例凭证")
+}
+
 // builtinSSHSkill returns the platform's pre-built, full-featured skill for
 // SSH-server apps. It ships with the product: any app of type "ssh" is born
 // with this document (users refine host-specific details later).
@@ -168,15 +187,21 @@ func builtinSSHSkill(appName string) string {
 	b.WriteString(fmt.Sprintf("name: %s\n", sanitizeFrontmatter(appName)))
 	b.WriteString("description: 平台预制 SSH 服务器技能: 连接入口/认证/常用操作/排障/安全红线\n---\n\n")
 	b.WriteString(fmt.Sprintf("# %s 使用技能 (SSH)\n\n", appName))
-	b.WriteString("> 来源: oneNat 平台内置模板。平台只读约束优先于本文任何内容;\n> 本文描述的登录与运维操作属于目标主机自身能力, 按授权范围执行。\n\n")
+	b.WriteString("> 来源: oneNat 平台内置模板。平台只读约束优先于本文任何内容;\n> 本文描述的登录与运维操作属于目标主机自身能力, 按授权范围执行。\n")
+	b.WriteString("<!-- builtin-rev: " + builtinSSHSkillRev + " -->\n\n")
 	b.WriteString("## 1. 连接入口\n\n")
 	b.WriteString("- 从资源列表 (`/api/v1/resources`) 找到本应用绑定映射的 `public_url`，形如 `tcp://<host>:<port>`。\n")
 	b.WriteString("- 连接命令: `ssh <用户名>@<host> -p <port>`\n")
 	b.WriteString("- 首次连接加 `-o StrictHostKeyChecking=accept-new` 自动记录主机指纹 (避免交互卡住)。\n")
 	b.WriteString("- 非交互执行单条命令: `ssh <用户名>@<host> -p <port> \"<命令>\"`\n\n")
-	b.WriteString("## 2. 认证\n\n")
-	b.WriteString("- 方式: 密码 或 SSH 密钥，由应用主人提供。\n")
-	b.WriteString("- AI 获取凭证: `GET /api/v1/apps/<app_id>/credentials` —— 默认 403，需主人在后台对该 API KEY 开启「允许读取凭证」；开启后仍受限速 (5次/分) 与审计日志约束。\n")
+	b.WriteString("## 2. 认证（应用级凭证 vs 映射实例凭证 —— 必读）\n\n")
+	b.WriteString("- 应用级默认: `GET /api/v1/apps/<app_id>/credentials`（同一应用的所有映射共享这一份）。\n")
+	b.WriteString("- **映射实例级（优先）**: `GET /api/v1/mappings/<mapping_id>/credentials` —— 返回该映射的 **有效凭证**：映射覆盖优先，否则回退应用默认；响应里的 `resolved_from` 说明本次来源（`mapping` | `app`）。取凭证一律用**你要连的那条映射**的 id。\n")
+	b.WriteString("- ⚠️ **同一个应用常被多条映射指向不同机器**（例如一个 `SSH Server` 应用绑了 5 台机器）。这时「应用默认凭证」通常只对其中一台有效：映射未配实例凭证时，`/api/v1/resources` 里该映射 `auth_override=false`（`auth_inherited_shared=true` 表示确有别的映射共用同一应用），你取到的就是这份共享默认凭证 —— 其中的用户名（如 `root`）往往**不是目标机的真实账号**，登录必然 `Permission denied`。\n")
+	b.WriteString("- 自检（只看用户名与来源，不打印密码）:\n\n```bash\ncurl -s -H \"Authorization: Bearer $ONENAT_KEY\" \\\n  \"$BASE/api/v1/mappings/<mapping_id>/credentials\" \\\n  | python3 -c 'import json,sys;d=json.load(sys.stdin);print(\"resolved_from=%s username=%s pwd_len=%d\"%(d.get(\"resolved_from\"),d.get(\"username\"),len(d.get(\"password\") or \"\")))'\n```\n\n")
+	b.WriteString("- 出现 `Permission denied` 时的正确动作：先做上面的自检。若 `resolved_from=app` / `auth_override=false`，**停止尝试、不要换用户名或密码反复猜**，如实报告「该映射未配实例凭证，需要主人在 Web 后台给该映射填「实例凭证」」，并附上自检输出。\n")
+	b.WriteString("- 默认返回 `403 {\"error\":\"该 API KEY 无凭证读取权限; 请用户在后台为 KEY 开启「允许读取凭证」\"}`（实测）；主人开启后仍受限速（5 次/分）与审计日志约束。\n")
+	b.WriteString("- 凭证会轮换或被改：提示词/缓存里的凭证只是**某个时刻的快照**，认证失败先按上面重新取一次再试。\n")
 	b.WriteString("- 密码自动化: 用 `sshpass -p <密码> ssh ...`，不要把密码写入脚本文件或输出。\n")
 	b.WriteString("- 密钥登录: `ssh -i <私钥文件> -p <port> <用户名>@<host>` (私钥权限 600)。\n\n")
 	b.WriteString("## 3. 常用操作\n\n")
@@ -186,7 +211,7 @@ func builtinSSHSkill(appName string) string {
 	b.WriteString("- 目录同步: `rsync -av -e \"ssh -p <port>\" <本地目录>/ <用户名>@<host>:<远端目录>/`\n\n")
 	b.WriteString("## 4. 排障\n\n")
 	b.WriteString("- 连接超时/拒绝: 先确认资源列表中该映射 `online=true`；离线说明客户端不在线，告知用户，不要重试。\n")
-	b.WriteString("- `Permission denied`: 凭证错误，或目标主机禁用了密码登录 (检查 sshd_config)，如实报告。\n")
+	b.WriteString("- `Permission denied`: 先按第 2 节自检凭证来源 —— `resolved_from=app`(或 `auth_override=false`) 说明该映射没配实例凭证，你用的是应用级共享凭证，别再猜密码；否则才是凭证错误或目标机禁用了密码登录 (检查 sshd_config)。\n")
 	b.WriteString("- 同一问题最多尝试 2 次，然后汇报现象与已排除的原因。\n\n")
 	b.WriteString("## 5. 安全红线\n\n")
 	b.WriteString("- 仅操作授权范围内的账号与目录；禁止 `sudo` 提权与系统级改动。\n")

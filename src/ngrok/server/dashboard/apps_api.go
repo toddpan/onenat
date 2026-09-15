@@ -300,16 +300,35 @@ func (d *Dashboard) apiPutAppCredential(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
-	err := d.store.UpdateAppCredential(a.ID, AppAuthInput{
-		AuthType: in.AuthType, Username: in.Username,
-		Password: in.Password, ApiKey: in.ApiKey, ExtraHeaders: in.ExtraHeaders,
-	})
+	// 传导前置：取更新前的应用凭证明文，用于识别"历史快照"式映射级覆盖
+	oldType := a.Auth.AuthType
+	oldUser, oldPass, oldKey, oldExtra, err := d.store.RevealAppCredential(a.ID)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	d.AuditUser(r, u, "cred.update", a.ID, "ok", map[string]string{"auth_type": in.AuthType})
-	writeJSON(w, http.StatusOK, map[string]string{"ok": "1"})
+	newIn := AppAuthInput{
+		AuthType: in.AuthType, Username: in.Username,
+		Password: in.Password, ApiKey: in.ApiKey, ExtraHeaders: in.ExtraHeaders,
+	}
+	if err := d.store.UpdateAppCredential(a.ID, newIn); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// 凭证传导：与旧值/新值相同的映射级覆盖回归继承，真正的实例差异凭证保留
+	propagated, kept, perr := d.store.PropagateAppCredential(a.ID,
+		AppAuthInput{AuthType: oldType, Username: oldUser, Password: oldPass, ApiKey: oldKey, ExtraHeaders: oldExtra},
+		newIn)
+	if perr != nil {
+		// 主更新已成功; 传导失败仅告警, 不回滚 (下次更新会重试)
+		d.AuditUser(r, u, "cred.propagate_fail", a.ID, perr.Error(), nil)
+	}
+	d.AuditUser(r, u, "cred.update", a.ID, "ok", map[string]string{
+		"auth_type":  in.AuthType,
+		"propagated": itoa64(int64(propagated)),
+		"kept":       itoa64(int64(kept)),
+	})
+	writeJSON(w, http.StatusOK, map[string]interface{}{"ok": "1", "propagated": propagated, "kept": kept})
 }
 
 // apiRevealAppCredential returns plaintext credentials after a confirm;

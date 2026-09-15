@@ -496,6 +496,64 @@ func (s *Store) revealAuthLocked(auth *AppAuth) (username, password, apiKey stri
 	return username, password, apiKey, extra, nil
 }
 
+// authEqual 判断两份明文凭证是否完全等价（含认证类型、用户名、密码、API Key 与自定义头）。
+func authEqual(a, b AppAuthInput) bool {
+	if a.AuthType != b.AuthType || a.Username != b.Username || a.Password != b.Password || a.ApiKey != b.ApiKey {
+		return false
+	}
+	if len(a.ExtraHeaders) != len(b.ExtraHeaders) {
+		return false
+	}
+	for k, v := range a.ExtraHeaders {
+		if b.ExtraHeaders[k] != v {
+			return false
+		}
+	}
+	return true
+}
+
+// PropagateAppCredential 应用凭证轮换的传导规则：应用默认凭证更新后，与旧值或
+// 新值完全相同的映射级覆盖只是历史快照（不携带实例差异信息，多为早期从应用
+// 凭证复制而来），自动改为继承应用默认——否则应用凭证的轮换永远传导不到这些
+// 映射（覆盖冻结旧值，表现为"更新不生效"）。与新旧值都不同的覆盖是真正的
+// 实例差异凭证，按「凭证跟实例走」原则保留不动。
+// 返回 (已传导=改为继承的映射数, 保留的映射数)。调用方须已完成 UpdateAppCredential。
+func (s *Store) PropagateAppCredential(appID string, old, new AppAuthInput) (propagated, kept int, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.credKey == nil {
+		return 0, 0, fmt.Errorf("凭证主密钥未初始化")
+	}
+	if s.appByIDLocked(appID) == nil {
+		return 0, 0, fmt.Errorf("应用不存在")
+	}
+	for _, t := range s.data.Tunnels {
+		for _, m := range t.Mappings {
+			if m.AppID != appID || m.Auth == nil {
+				continue
+			}
+			authType := m.Auth.AuthType
+			username, password, apiKey, extra, rerr := s.revealAuthLocked(m.Auth)
+			if rerr != nil {
+				return propagated, kept, rerr
+			}
+			cur := AppAuthInput{AuthType: authType, Username: username, Password: password, ApiKey: apiKey, ExtraHeaders: extra}
+			if authEqual(cur, old) || authEqual(cur, new) {
+				m.Auth = nil // 快照覆盖 → 回归继承应用默认
+				propagated++
+			} else {
+				kept++
+			}
+		}
+	}
+	if propagated > 0 {
+		if err := s.saveLocked(); err != nil {
+			return propagated, kept, err
+		}
+	}
+	return propagated, kept, nil
+}
+
 // AppOwnedBy is the ownership check used by handlers.
 func (s *Store) AppOwnedBy(appID, userID string, admin bool) bool {
 	a := s.AppByID(appID)

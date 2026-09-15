@@ -230,6 +230,8 @@ func (d *Dashboard) apiV1AppCredentials(w http.ResponseWriter, r *http.Request) 
 // default (resolved_from reports which). Same gate as the app-level
 // endpoint: CanReadCred + shared rate limit + audit on every attempt.
 // 一个应用可被多条映射指向不同实例 (凭证各异), AI 按映射取凭证。
+// 传导规则见 Store.PropagateAppCredential: 应用凭证更新时, 与旧/新值相同的
+// 映射级覆盖自动回归继承, 实例差异凭证保留。
 func (d *Dashboard) apiV1MappingCredentials(w http.ResponseWriter, r *http.Request) {
 	k, u, ok := d.userFromApiKey(r)
 	if !ok {

@@ -263,6 +263,8 @@ func (d *Dashboard) tunnelDetail(t *Tunnel) *TunnelDetail {
 		mv := MappingView{Mapping: m, PublicURL: d.PublicEndpoint(m.ID, rt), Error: rt.Errors[m.ID]}
 		mv.AuthOverride = m.Auth != nil
 		if m.AppID != "" {
+			// 未配实例凭证 + 应用被多条映射共用 ⇒ 继承的应用默认凭证多半对不上这台
+			mv.AuthInheritedShared = m.Auth == nil && d.store.AppMappingCount(m.AppID) > 1
 			if a := d.store.AppByID(m.AppID); a != nil {
 				mv.AppName = a.Name
 				if mv.AuthType == "" {
@@ -831,13 +833,23 @@ curl -s "{{.BaseURL}}/skill/index.md?key={{.Key}}"
 
 ## 4. 凭证
 
-需要应用登录凭证时：` + "`" + `GET /api/v1/apps/<app_id>/credentials` + "`" + `。
-**同一应用被多条映射指向不同实例时（凭证各异）**，改用映射级端点：
+需要应用登录凭证时：` + "`" + `GET /api/v1/apps/<app_id>/credentials` + "`" + `（同一应用的所有映射共享这一份）。
+**同一应用被多条映射指向不同实例时（凭证各异）**，必须改用映射级端点：
 ` + "`" + `GET /api/v1/mappings/<mapping_id>/credentials` + "`" + ` —— 它返回该映射的
 **有效凭证**（映射覆盖优先，回退应用默认），响应带 ` + "`" + `resolved_from` + "`" + `
-说明来源；resources 里映射的 ` + "`" + `auth_override` + "`" + ` 字段提示是否存在独立凭证。
+说明来源（` + "`" + `mapping` + "`" + ` = 该映射的实例独立凭证；` + "`" + `app` + "`" + ` = 回退到应用默认）；
+resources 里映射的 ` + "`" + `auth_override` + "`" + ` 字段提示是否存在独立凭证，
+` + "`" + `auth_inherited_shared` + "`" + ` 表示"该映射没配实例凭证、但确有别的映射共用同一应用"。
 **传导规则**：应用默认凭证更新时，与旧值或新值完全相同的映射级覆盖
 （历史快照）自动回归继承，真正的实例差异凭证保留不动。
+
+⚠️ **最常见的踩坑**：一个应用绑了多台机器（如 ` + "`" + `SSH Server` + "`" + ` 绑 5 台），
+其中没配实例凭证的映射会拿到**应用默认凭证**，它通常只对其中一台有效 ——
+此时注入/缓存里的用户名（如 ` + "`" + `root` + "`" + `）不是目标机账号，登录必然 ` + "`" + `Permission denied` + "`" + `。
+正确动作：先看 ` + "`" + `auth_override` + "`" + ` / ` + "`" + `resolved_from` + "`" + `，再决定是否动手；
+认证失败时先**重新取一次**该映射的凭证（凭证会轮换，快照会过期），
+若仍是 ` + "`" + `resolved_from=app` + "`" + `，如实报告该映射未配实例凭证并请主人在后台补配，
+**不要**换用户名/密码反复猜，同一问题最多尝试 2 次。
 
 - 默认返回 ` + "`" + `403 {"error":"该 API KEY 无凭证读取权限; 请用户在后台为 KEY 开启「允许读取凭证」"}` + "`" + `（实测）；
 - 主人开启后仍受限速（5 次/分）与审计日志约束；

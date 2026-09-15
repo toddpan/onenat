@@ -1,4 +1,4 @@
-# oneNat 服务端发行包 r2026.09.07
+# oneNat 服务端发行包 r2026.09.15
 
 公网隧道服务端 + Web 管理后台 + 客户端一键安装分发 + AI SKILL，开箱即用。
 
@@ -13,12 +13,17 @@
   映射上覆盖独立凭证 (凭证跟实例走); AI 经 `GET /api/v1/mappings/:id/credentials`
   取「映射覆盖 ?? 应用默认」的有效凭证, 开关可控 (KEY 页「允许读取凭证」)、
   限速 5 次/分、逐次审计
+- **凭证来源显式化 (r2026.09.15)**: 资源列表新增 `auth_inherited_shared`
+  (该映射未配实例凭证、但确有别的映射共用同一应用 ⇒ 现在生效的是应用默认
+  凭证, 通常只对其中一台有效); 内置 SSH 技能与平台技能 (onenat.md) 都写明了
+  「应用默认 vs 映射实例」的判定与自检方法, 认证失败不再靠猜密码; 映射详情页
+  对这种情况显示「继承应用默认」徽标
 - 可观测: 在线状态、最近连接记录、近 7 天流量
 
 ## 包内容
 
 ```
-oneNat-r2026.09.07/
+oneNat-r2026.09.15/
 ├── start-onenat.sh      # 启动脚本 (Linux/macOS, 自动选择平台二进制, nohup 常驻)
 ├── start-onenat.bat     # 启动脚本 (Windows, 前台运行, Ctrl+C 停止)
 ├── stop-onenat.sh       # 停止脚本 (Linux/macOS; Windows 直接关窗口或 Ctrl+C)
@@ -49,8 +54,8 @@ oneNat-r2026.09.07/
 
 ```bash
 # 1. 解压
-tar xzf oneNat-r2026.09.07.tar.gz
-cd oneNat-r2026.09.07
+tar xzf oneNat-r2026.09.15.tar.gz
+cd oneNat-r2026.09.15
 
 # 2. 启动 (默认: 隧道口 4443 / 公网 http 80 / 管理后台 18080)
 bash start-onenat.sh
@@ -87,6 +92,7 @@ HKCU Run 键），不需要管理员权限；重装/升级重复执行同一条�
 | `HTTPS_PORT` | 关闭 | 公网 https 隧道入口 |
 | `TLS_CERT` / `TLS_KEY` | 内嵌自签证书 | 正式 TLS 证书路径（https 隧道用） |
 | `AUTH_TOKENS` | 空=不校验 | 静态密钥白名单（逗号分隔）；管理后台的隧道 KEY 始终有效 |
+| `PORT_RANGE` | 空=不限制 | 公网端口映射范围 `min-max`（如 `30000-40000`）；范围外端口创建映射将被拒绝，自动分配端口也落在范围内 |
 | `WEB_PORT` | `18080` | 管理后台端口，空字符串禁用后台 |
 | `WEB_DATA` | `./onenat-dashboard.json` | 用户/隧道数据文件 |
 | `WEB_ADMIN_PASS` | 随机 | 初始 admin 密码（仅数据文件为空时生效） |
@@ -185,7 +191,7 @@ sudo systemctl enable --now onenat
 
 ## 版本信息
 
-- 发行标识：r2026.09.07
+- 发行标识：r2026.09.15
 - 协议版本：ngrok v1.x（Proto 2 / 1.7 系改造版，含 agent 网关与管理后台扩展）
 - 已知说明：流量统计与连接记录为内存态（服务重启清零）；管理后台数据为
   JSON 文件存储，适合中小规模（数十用户/数百隧道）。

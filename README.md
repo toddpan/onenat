@@ -53,7 +53,7 @@
 ### 4. 🛡️ 企业级全链路安全防御
 - **防内网跳板与 SSRF 防御**：服务端与客户端默认**仅允许转发 `127.0.0.1` / `localhost`**。如需代理局域网主机（如 `192.168.x.x`），需在后台显式开启「允许局域网目标」（`AllowRemoteTargets`）；
 - **数据代理连接防劫持 (Anti-Spoofing)**：服务端发起连接时分配一次性 Nonce Token，客户端回传基于隧道私钥计算的 **HMAC-SHA256** 签名，彻底杜绝凭 ClientId 伪造连接池的隐患；
-- **特权端口与配额保护**：禁止公网端口映射至 `< 1024` 特权端口，单隧道设置映射数量上限；
+- **特权端口与配额保护**：禁止公网端口映射至 `< 1024` 特权端口，单隧道设置映射数量上限；支持通过 `-portRange`（如 `30000-40000`）限定公网端口映射范围，未指定则不限制；
 - **HTTP 子域名多租户防抢占**：数据层租户静态绑定，防止知名子域名在离线时被恶意抢占；
 - **原生 HTTPS 支持**：管理后台支持配置 TLS 证书，并在 HTTPS 环境下自动为 Session Cookie 打上 `Secure` 属性。
 
@@ -94,7 +94,7 @@
 
 ```bash
 # 下载并解压
-tar -xzf oneNat-r2026.09.07.tar.gz && cd oneNat-r2026.09.07
+tar -xzf oneNat-r2026.09.15.tar.gz && cd oneNat-r2026.09.15
 
 # 启动服务 (默认端口: 隧道 4443 / 管理后台 18080)
 DOMAIN=你的服务器IP_或域名 WEB_ADMIN_PASS=自定义管理员密码 bash start-onenat.sh
@@ -157,6 +157,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "& ([scriptblock]::Create
 | `WEB_TLS_CERT` | `-webTlsCrt` | `""` | 管理后台 HTTPS 证书路径（开启原生 HTTPS） |
 | `WEB_TLS_KEY` | `-webTlsKey` | `""` | 管理后台 HTTPS 私钥路径 |
 | `DL_DIR` | `-dlDir` | `./dl` | 客户端二进制分发目录（用于一键安装） |
+| `PORT_RANGE` | `-portRange` | `""` (不限制) | 公网端口映射范围 `min-max`（如 `30000-40000`；不指定则不限制，仅保留 `<1024` 特权端口禁用规则；自动分配的端口也会落在范围内） |
 
 ---
 

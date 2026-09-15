@@ -156,7 +156,7 @@ function showMappingModal(mid) {
     <label class="field">本地端口
       <input id="m-lport" type="number" min="1" max="65535" value="${m ? m.local_port : ''}" required>
     </label>
-    <label class="field" id="m-rport-row">公网端口 (留空或 0 = 自动分配)
+    <label class="field" id="m-rport-row">公网端口 (留空或 0 = 自动分配${PAGE.portRange ? ', 允许范围 ' + esc(PAGE.portRange) : ''})
       <input id="m-rport" type="number" min="0" max="65535" value="${m ? m.remote_port : 0}">
     </label>
     <label class="field" id="m-sub-row">子域名 (http/https 时生效)

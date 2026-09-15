@@ -205,4 +205,44 @@ func TestVisibilityScoping(t *testing.T) {
 	}
 }
 
+func TestStorePublicPortRange(t *testing.T) {
+	s := tempStore(t)
+	tun := s.CreateTunnel(NewTunnelInput{Name: "ranged", OwnerID: "u1"})
+
+	// 未配置范围: 一切合法端口均可 (现状行为)
+	if _, err := s.AddMapping(tun.ID, MappingInput{Proto: "tcp", LocalPort: 22, RemotePort: 52001}); err != nil {
+		t.Fatalf("unrestricted store must accept any port: %v", err)
+	}
+
+	// 配置范围 [30000-40000]
+	s.SetPortRange(30000, 40000)
+
+	// 0 = 自动分配, 不受范围约束 (服务端会在范围内取口)
+	if _, err := s.AddMapping(tun.ID, MappingInput{Proto: "tcp", LocalPort: 22, RemotePort: 0}); err != nil {
+		t.Fatalf("remote port 0 (auto) must stay allowed: %v", err)
+	}
+	// 范围内端口放行
+	if _, err := s.AddMapping(tun.ID, MappingInput{Proto: "tcp", LocalPort: 22, RemotePort: 30000}); err != nil {
+		t.Fatalf("in-range port must be accepted: %v", err)
+	}
+	if _, err := s.AddMapping(tun.ID, MappingInput{Proto: "tcp", LocalPort: 22, RemotePort: 40000}); err != nil {
+		t.Fatalf("in-range port must be accepted: %v", err)
+	}
+	// 范围外端口拒绝 (即便不是特权端口)
+	if _, err := s.AddMapping(tun.ID, MappingInput{Proto: "tcp", LocalPort: 22, RemotePort: 29999}); err == nil {
+		t.Fatal("below-range port must be rejected")
+	}
+	if _, err := s.AddMapping(tun.ID, MappingInput{Proto: "tcp", LocalPort: 22, RemotePort: 40001}); err == nil {
+		t.Fatal("above-range port must be rejected")
+	}
+	// 编辑既有映射同样受范围约束
+	m := tun.Mappings[0]
+	if err := s.UpdateMapping(tun.ID, m.ID, MappingInput{Proto: "tcp", LocalPort: 22, RemotePort: 2222}); err == nil {
+		t.Fatal("update to out-of-range port must be rejected")
+	}
+	if err := s.UpdateMapping(tun.ID, m.ID, MappingInput{Proto: "tcp", LocalPort: 22, RemotePort: 33333}); err != nil {
+		t.Fatalf("update to in-range port must succeed: %v", err)
+	}
+}
+
 func TestMain(m *testing.M) { os.Exit(m.Run()) }
