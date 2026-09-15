@@ -15,17 +15,19 @@ type appsPageData struct {
 	Page    string
 	User    *User
 	IsAdmin bool
+	Version string
 	Apps    []AppView
 }
 
 type appDetailPageData struct {
-	Page       string
-	User       *User
-	IsAdmin    bool
-	App        AppView
-	Skills     []SkillView
-	Bindings   []bindingRow
-	AIPrompt   string // 模板提示词 (KEY 占位), JS 端会替换成真实 KEY
+	Page        string
+	User        *User
+	IsAdmin     bool
+	Version     string
+	App         AppView
+	Skills      []SkillView
+	Bindings    []bindingRow
+	AIPrompt    string // 模板提示词 (KEY 占位), JS 端会替换成真实 KEY
 	InternalURL string
 }
 
@@ -48,7 +50,7 @@ func (d *Dashboard) pageApps(w http.ResponseWriter, r *http.Request) {
 		items = append(items, d.appView(a))
 	}
 	d.tpl.ExecuteTemplate(w, "page_apps", &appsPageData{
-		Page: "apps", User: u, IsAdmin: u.Role == "admin", Apps: items,
+		Page: "apps", User: u, IsAdmin: u.Role == "admin", Version: d.Version(), Apps: items,
 	})
 }
 
@@ -85,7 +87,7 @@ func (d *Dashboard) pageAppDetail(w http.ResponseWriter, r *http.Request) {
 		skills = append(skills, skillView(sk))
 	}
 	d.tpl.ExecuteTemplate(w, "page_app_detail", &appDetailPageData{
-		Page: "apps", User: u, IsAdmin: u.Role == "admin",
+		Page: "apps", User: u, IsAdmin: u.Role == "admin", Version: d.Version(),
 		App: d.appView(a), Skills: skills, Bindings: bindings,
 		AIPrompt: d.appInstallPromptTemplate(a),
 	})

@@ -8,6 +8,7 @@
 <body class="login-body">
   <div class="login-card">
     <div class="login-brand">● oneNat <small>管理后台</small></div>
+    <div class="login-version">v{{.Version}}</div>
     {{if .Error}}<div class="alert alert-err">{{.Error}}</div>{{end}}
     <form method="post" action="/login">
       <label class="field">用户名

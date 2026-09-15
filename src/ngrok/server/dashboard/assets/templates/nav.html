@@ -15,6 +15,7 @@
   {{if .IsAdmin}}<a href="/users" class="side-link {{if eq .Page "users"}}active{{end}}"><span class="ico">☺</span>用户管理</a>{{end}}
   <a href="/keys" class="side-link {{if eq .Page "keys"}}active{{end}}"><span class="ico">🔑</span>API 密钥</a>
   <div class="side-foot">
+    <div class="side-version" title="oneNat 服务端版本">v{{.Version}}</div>
     <div class="side-user">{{.User.Username}}</div>
     <a href="/logout" class="side-link">退出登录</a>
   </div>

@@ -90,13 +90,15 @@ var staticVer = strconv.FormatInt(time.Now().UnixNano(), 36)
 // ---------- page data ----------
 
 type loginPageData struct {
-	Error string
+	Error   string
+	Version string
 }
 
 type tunnelsPageData struct {
 	Page    string
 	User    *User
 	IsAdmin bool
+	Version string
 	Q       string
 	Status  string
 	Tunnels []TunnelListItem
@@ -117,6 +119,7 @@ type tunnelDetailPageData struct {
 	MaxWeekly     int64
 	Apps          []AppOption // 映射表单「关联应用」下拉
 	PortRange     string      // 公网端口允许范围提示 (如 "30000-40000"; 空=不限制)
+	Version       string
 }
 
 // AppOption is a slim app descriptor for select dropdowns.
@@ -147,6 +150,7 @@ type usersPageData struct {
 	Page         string
 	User         *User
 	IsAdmin      bool
+	Version      string
 	Users        []*User
 	TunnelCounts map[string]int
 }
@@ -195,7 +199,7 @@ func (d *Dashboard) pageLogin(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
-	d.tpl.ExecuteTemplate(w, "page_login", &loginPageData{})
+	d.tpl.ExecuteTemplate(w, "page_login", &loginPageData{Version: d.Version()})
 }
 
 func (d *Dashboard) handleLoginPost(w http.ResponseWriter, r *http.Request) {
@@ -204,7 +208,7 @@ func (d *Dashboard) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 	password := r.FormValue("password")
 	u := d.store.UserByName(username)
 	if u == nil || !VerifyPassword(password, u.PassHash) {
-		d.tpl.ExecuteTemplate(w, "page_login", &loginPageData{Error: "用户名或密码错误"})
+		d.tpl.ExecuteTemplate(w, "page_login", &loginPageData{Error: "用户名或密码错误", Version: d.Version()})
 		return
 	}
 		d.sessions.Issue(w, u.Username, d.isSecure(r))
@@ -242,7 +246,7 @@ func (d *Dashboard) pageTunnels(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := &tunnelsPageData{
-		Page: "tunnels", User: u, IsAdmin: admin, Q: q, Status: status, Tunnels: items,
+		Page: "tunnels", User: u, IsAdmin: admin, Version: d.Version(), Q: q, Status: status, Tunnels: items,
 	}
 	if admin {
 		data.Users = d.store.Users()
@@ -302,6 +306,7 @@ func (d *Dashboard) pageTunnelDetail(w http.ResponseWriter, r *http.Request) {
 		Weekly:     td.Runtime.WeeklyTraffic,
 		Apps:       d.appOptionsFor(u, t),
 		PortRange:  d.PortRangeHint(),
+		Version:    d.Version(),
 	}
 	for _, day := range data.Weekly {
 		if day.Bytes > data.MaxWeekly {
@@ -326,7 +331,7 @@ func (d *Dashboard) pageKeys(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	d.tpl.ExecuteTemplate(w, "page_keys", &keysPageData{
-		Page: "keys", User: u, IsAdmin: u.Role == "admin", Keys: items, BaseURL: base,
+		Page: "keys", User: u, IsAdmin: u.Role == "admin", Version: d.Version(), Keys: items, BaseURL: base,
 	})
 }
 
@@ -339,7 +344,7 @@ func (d *Dashboard) pageUsers(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	d.tpl.ExecuteTemplate(w, "page_users", &usersPageData{
-		Page: "users", User: u, IsAdmin: u.Role == "admin",
+		Page: "users", User: u, IsAdmin: u.Role == "admin", Version: d.Version(),
 		Users: d.store.Users(), TunnelCounts: counts,
 	})
 }
@@ -885,6 +890,7 @@ type keysPageData struct {
 	Page    string
 	User    *User
 	IsAdmin bool
+	Version string
 	Keys    []keyPageItem
 	BaseURL string
 }
