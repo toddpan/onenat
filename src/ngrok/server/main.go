@@ -126,6 +126,13 @@ func Main() {
 	// init logging
 	log.LogTo(opts.logto, opts.loglevel)
 
+	// public port-mapping range policy (empty = unrestricted)
+	if portRangeConfigured() {
+		log.Info("Public TCP port-mapping range: %d-%d", opts.portRangeMin, opts.portRangeMax)
+	} else {
+		log.Info("Public TCP port-mapping range: unrestricted")
+	}
+
 	// seed random number generator
 	seed, err := util.RandomSeed()
 	if err != nil {
@@ -190,6 +197,8 @@ func startDashboard() error {
 		AdminPass:    opts.webAdminPass,
 		SecureCookie: isHttps,
 		SkillsDir:    opts.skillsDir,
+		PortRangeMin: opts.portRangeMin,
+		PortRangeMax: opts.portRangeMax,
 	})
 	if err != nil {
 		return err

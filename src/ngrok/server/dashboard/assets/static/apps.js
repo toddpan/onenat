@@ -359,7 +359,7 @@ function renderAppPrompt() {
         <label class="field">API Key
           <input id="m-auth-ak" type="password" autocomplete="new-password">
         </label>
-        <div class="muted small" style="margin:-4px 0 8px">密钥加密存储, 仅经 /api/v1/mappings/:id/credentials 限速读取 (全程审计)</div>
+        <div class="muted small" style="margin:-4px 0 8px">密钥加密存储, 仅经 /api/v1/mappings/:id/credentials 限速读取 (全程审计)。应用默认凭证更新时, 与旧/新值相同的实例覆盖会自动回归继承; 真正的实例差异凭证保留不动</div>
       </div>`);
   }
 
@@ -437,3 +437,71 @@ function renderAppPrompt() {
     }
   });
 })();
+
+// ---------- 配置导入/导出 (管理员) ----------
+// 导出: 应用(含凭证明文+技能)+隧道(含映射与实例级凭证覆盖) 打包为 JSON;
+// 导入: 按名称匹配, skip=跳过同名 / update=更新同名; 永不删除既有数据。
+
+async function exportConfig() {
+  try {
+    const withCred = confirm('导出文件将包含访问凭证明文 (用于跨环境导入)。\n\n'
+      + '确定 = 包含凭证 (推荐, 完整迁移)\n取消 = 仅导出不含凭证的结构配置');
+    const res = await fetch('/api/config/export?credentials=' + (withCred ? '1' : '0'), { credentials: 'same-origin' });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || ('HTTP ' + res.status));
+    const blob = await res.blob();
+    const cd = res.headers.get('Content-Disposition') || '';
+    const m = cd.match(/filename="([^"]+)"/);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = m ? m[1] : 'onenat-config.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast('配置已导出' + (withCred ? ' (含凭证, 请妥善保管)' : ' (不含凭证)'));
+  } catch (e) { toast('导出失败: ' + e.message, true); }
+}
+
+function showImportConfig() {
+  showModal(`
+    <h3>导入配置</h3>
+    <label class="field">选择导出文件 (.json)
+      <input type="file" id="cfg-file" accept=".json,application/json">
+    </label>
+    <label class="field">冲突处理
+      <select id="cfg-mode">
+        <option value="skip">跳过同名 (只补缺失, 推荐)</option>
+        <option value="update">更新同名 (覆盖元数据与凭证)</option>
+      </select>
+    </label>
+    <div class="hint small">导入按名称匹配应用与隧道: 缺失的创建 (隧道 KEY 重新生成), 已有的按上面策略处理; 不会删除任何现有配置。导入者成为新资源的归属人。</div>
+    <div class="modal-foot">
+      <button class="btn" onclick="hideModal()">取消</button>
+      <button class="btn btn-primary" onclick="submitImportConfig()">导入</button>
+    </div>`);
+}
+
+async function submitImportConfig() {
+  const f = document.getElementById('cfg-file').files[0];
+  if (!f) { toast('请选择配置文件', true); return; }
+  const mode = document.getElementById('cfg-mode').value;
+  let config;
+  try { config = JSON.parse(await f.text()); }
+  catch (e) { toast('文件不是有效的 JSON: ' + e.message, true); return; }
+  if (config.format !== 'onenat-config') { toast('不是 oneNat 配置导出文件', true); return; }
+  if (config.include_credentials &&
+      !confirm('该文件包含凭证明文, 导入后将按本机密钥重新加密保存。继续?')) return;
+  try {
+    const res = await api('POST', '/api/config/import', { config, mode });
+    hideModal();
+    const fail = (res.mappings_failed || []).length;
+    showModal(`
+      <h3>导入完成</h3>
+      <table class="tbl">
+        <tr><td>应用</td><td>新建 ${res.apps_created} · 更新 ${res.apps_updated} · 跳过 ${res.apps_skipped}</td></tr>
+        <tr><td>技能文件</td><td>新增 ${res.skills_added}</td></tr>
+        <tr><td>隧道</td><td>新建 ${res.tunnels_created} · 更新 ${res.tunnels_updated} · 跳过 ${res.tunnels_skipped}</td></tr>
+        <tr><td>端口映射</td><td>新建 ${res.mappings_created}${fail ? ` · 失败 ${fail}` : ''}</td></tr>
+      </table>
+      ${fail ? `<div class="alert alert-err" style="margin-top:8px">${res.mappings_failed.map(esc).join('<br>')}</div>` : ''}
+      <div class="modal-foot"><button class="btn btn-primary" onclick="hideModal();location.reload()">好的</button></div>`);
+  } catch (e) { toast('导入失败: ' + e.message, true); }
+}

@@ -10,7 +10,11 @@
 <main class="main">
   <div class="page-head">
     <h1>应用管理</h1>
-    <button class="btn btn-primary" onclick="showCreateApp()">＋ 注册新应用</button>
+    <div>
+      {{if eq .User.Role "admin"}}<button class="btn" onclick="exportConfig()">⬇ 导出配置</button>
+      <button class="btn" onclick="showImportConfig()">⬆ 导入配置</button>{{end}}
+      <button class="btn btn-primary" onclick="showCreateApp()">＋ 注册新应用</button>
+    </div>
   </div>
 
   <div class="hint" style="margin-bottom:18px">

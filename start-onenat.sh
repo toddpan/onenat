@@ -17,6 +17,8 @@
 #    WEB_PORT    管理后台端口 (默认 18080; 设为空字符串则禁用)
 #    WEB_DATA    管理后台数据文件 (默认 ./onenat-dashboard.json)
 #    DL_DIR      客户端二进制分发目录 (默认 ./dl)
+#    PORT_RANGE  公网端口映射范围 "min-max" (如 30000-40000; 默认空=不限制,
+#                仅保留 <1024 特权端口禁用规则)
 #  例:
 #    bash start-onenat.sh                                    # 本地最小化
 #    DOMAIN=ngrok.me HTTP_PORT=80 AUTH_TOKENS=k1,k2 bash start-onenat.sh
@@ -58,6 +60,7 @@ DL_DIR="${DL_DIR-./dl}"
 WEB_ADMIN_PASS="${WEB_ADMIN_PASS-}"
 WEB_TLS_CERT="${WEB_TLS_CERT-}"
 WEB_TLS_KEY="${WEB_TLS_KEY-}"
+PORT_RANGE="${PORT_RANGE-}"
 
 # 已在运行则先停
 if [ -f "$PIDFILE" ] && kill -0 "$(cat $PIDFILE)" 2>/dev/null; then
@@ -76,6 +79,7 @@ else
   ARGS+=( -httpsAddr "" )
 fi
 [ -n "$AUTH_TOKENS" ] && ARGS+=( -authToken "$AUTH_TOKENS" )
+[ -n "$PORT_RANGE" ] && ARGS+=( -portRange "$PORT_RANGE" )
 if [ -n "$WEB_PORT" ]; then
   ARGS+=( -webAddr ":$WEB_PORT" -webData "$WEB_DATA" -dlDir "$DL_DIR" )
   [ -n "$WEB_ADMIN_PASS" ] && ARGS+=( -webAdminPass "$WEB_ADMIN_PASS" )
@@ -101,6 +105,7 @@ echo "  隧道口     : $DOMAIN:$TUNNEL_PORT   ← 客户端 -server=这里"
 echo "  公网 http  : $([ -n "$HTTP_PORT" ] && echo "$DOMAIN:$HTTP_PORT" || echo 关闭)"
 echo "  公网 https : $([ -n "$HTTPS_PORT" ] && echo "$DOMAIN:$HTTPS_PORT" || echo 关闭)"
 echo "  密钥校验   : $([ -n "$AUTH_TOKENS" ] && echo "开启(白名单)" || echo 关闭)"
+echo "  端口范围   : ${PORT_RANGE:-不限制}"
 if [ -n "$WEB_PORT" ]; then
 echo "  管理后台   : http://$DOMAIN:$WEB_PORT"
 # 初始密码: stdout 即时打印(onenat-console.log), 文件日志异步刷盘作为兜底

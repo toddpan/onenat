@@ -64,7 +64,7 @@
             <tr>
               <td class="mono">{{.LocalIP}}:{{.LocalPort}}</td>
               <td class="mono">{{if .PublicURL}}{{.PublicURL}}{{else}}—{{end}}</td>
-              <td>{{if .AppName}}<a class="chip chip-app" href="/apps/{{.AppID}}">{{.AppName}}</a>{{if .AuthOverride}} <span class="badge badge-lock" title="该映射使用实例级独立凭证, 凭证读取走 /api/v1/mappings/:id/credentials">独立凭证</span>{{end}}{{else}}<span class="muted small">未关联</span>{{end}}</td>
+              <td>{{if .AppName}}<a class="chip chip-app" href="/apps/{{.AppID}}">{{.AppName}}</a>{{if .AuthOverride}} <span class="badge badge-lock" title="该映射使用实例级独立凭证, 凭证读取走 /api/v1/mappings/:id/credentials">独立凭证</span>{{else}}{{if .AuthInheritedShared}} <span class="badge badge-warn" title="该映射未配实例凭证, 现在生效的是「应用默认凭证」; 同一应用被多条映射指向不同机器时, 这份默认凭证通常只对其中一台有效 —— 建议点「编辑」为该映射填「实例凭证」">继承应用默认</span>{{end}}{{end}}{{else}}<span class="muted small">未关联</span>{{end}}</td>
               <td>{{.Note}}</td>
               <td>{{if .Error}}<span class="badge badge-err" title="{{.Error}}">错误</span>
                   {{else if .PublicURL}}<span class="badge badge-on">已开通</span>
@@ -156,6 +156,7 @@ window.PAGE = {
   tunnelName: "{{.T.Name}}",
   locked: {{if .T.Locked}}true{{else}}false{{end}},
   allowRemoteTargets: {{if .T.AllowRemoteTargets}}true{{else}}false{{end}},
+  portRange: "{{.PortRange}}",
   mappings: {{toJSON .T.Mappings}},
   apps: {{toJSON .Apps}}
 };

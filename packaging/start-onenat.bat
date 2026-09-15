@@ -9,6 +9,7 @@ rem    TUNNEL_PORT  客户端隧道口  (默认 4443)
 rem    HTTP_PORT    公网 http 口  (默认 80; 设为 off 关闭)
 rem    HTTPS_PORT   公网 https 口 (默认关闭, 配合 TLS_CERT/TLS_KEY)
 rem    AUTH_TOKENS  静态密钥白名单, 逗号分隔
+rem    PORT_RANGE   公网端口映射范围 min-max (如 30000-40000; 默认不限制)
 rem    WEB_PORT     管理后台端口  (默认 18080; 设为 off 关闭)
 rem    WEB_ADMIN_PASS  初始 admin 密码 (仅数据文件为空时生效)
 rem    WEB_DATA / DL_DIR / LOGFILE
@@ -55,6 +56,7 @@ if defined HTTPS_PORT if /I not "%HTTPS_PORT%"=="off" (
 )
 
 if defined AUTH_TOKENS    set ARGS=%ARGS% -authToken %AUTH_TOKENS%
+if defined PORT_RANGE     set ARGS=%ARGS% -portRange %PORT_RANGE%
 if defined WEB_ADMIN_PASS set ARGS=%ARGS% -webAdminPass %WEB_ADMIN_PASS%
 
 echo.

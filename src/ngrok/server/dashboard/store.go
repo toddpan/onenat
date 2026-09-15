@@ -155,6 +155,10 @@ type Store struct {
 	data storeFile
 	// credKey 是应用凭证加密主密钥 (crypto.go), 在 New() 装配后注入。
 	credKey []byte
+	// 公网端口映射范围 (服务端 -portRange): 双端 >0 时, 显式指定的公网端口
+	// 必须落在 [portRangeMin, portRangeMax] 内; 0/0 = 不限制。
+	portRangeMin int
+	portRangeMax int
 }
 
 // SetCredentialKey injects the credential master key (called once at startup).
@@ -162,6 +166,13 @@ func (s *Store) SetCredentialKey(key []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.credKey = key
+}
+
+// SetPortRange installs the public-port mapping range (called once at startup).
+func (s *Store) SetPortRange(min, max int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.portRangeMin, s.portRangeMax = min, max
 }
 
 // ---------- id / key generation ----------
@@ -228,7 +239,20 @@ func OpenStore(path string) (*Store, error) {
 // saveLocked writes the file atomically. Callers must hold mu for writing
 // (or be in single-threaded startup).
 func (s *Store) saveLocked() error {
-	b, err := json.MarshalIndent(&s.data, "", "  ")
+	// 落盘必须走持久化投影: Mapping.MarshalJSON 面向 API 视图隐藏密文 auth,
+	// 若直接 Marshal storeFile, 映射级凭证永远写不进磁盘 (重启即丢, 2026-09-11 事故)。
+	// mappingPersist / persistTunnel / persistStoreFile 用定义类型 + 字段遮蔽,
+	// 让密文 auth 进入磁盘, 而 API 视图行为不变。
+	pf := persistStoreFile{storeFile: &s.data}
+	pf.Tunnels = make([]*persistTunnel, 0, len(s.data.Tunnels))
+	for _, t := range s.data.Tunnels {
+		pt := &persistTunnel{Tunnel: t, Mappings: make([]*mappingPersist, 0, len(t.Mappings))}
+		for _, m := range t.Mappings {
+			pt.Mappings = append(pt.Mappings, (*mappingPersist)(m))
+		}
+		pf.Tunnels = append(pf.Tunnels, pt)
+	}
+	b, err := json.MarshalIndent(&pf, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -240,6 +264,22 @@ func (s *Store) saveLocked() error {
 		return err
 	}
 	return os.Rename(tmp, s.path)
+}
+
+// mappingPersist 与 Mapping 字段完全一致 (定义类型转换不继承方法), 专用于落盘。
+type mappingPersist Mapping
+
+// persistTunnel 借内嵌 *Tunnel 复用其余字段, 用持久化投影遮蔽 Mappings
+// (encoding-json 里深度 0 的显式字段优先于内嵌提升的同名字段)。
+type persistTunnel struct {
+	*Tunnel
+	Mappings []*mappingPersist `json:"mappings"`
+}
+
+// persistStoreFile 同理遮蔽根层的 Tunnels。
+type persistStoreFile struct {
+	*storeFile
+	Tunnels []*persistTunnel `json:"tunnels"`
 }
 
 func dirOf(p string) string {
@@ -541,7 +581,7 @@ func isLoopbackHost(host string) bool {
 	return false
 }
 
-func validateMappingInput(in *MappingInput, allowRemote bool) error {
+func (s *Store) validateMappingInput(in *MappingInput, allowRemote bool) error {
 	switch in.Proto {
 	case "tcp":
 	case "http", "https":
@@ -556,6 +596,12 @@ func validateMappingInput(in *MappingInput, allowRemote bool) error {
 	}
 	if in.RemotePort > 0 && in.RemotePort < 1024 {
 		return fmt.Errorf("公网端口不允许使用系统特权端口 (< 1024)")
+	}
+	// 服务端配置的公网端口映射范围 (0 = 不限制); RemotePort 0 表示
+	// 自动分配, 由服务端在范围内取口, 不受此校验约束
+	if in.RemotePort > 0 && s.portRangeMin > 0 && s.portRangeMax > 0 &&
+		(in.RemotePort < s.portRangeMin || in.RemotePort > s.portRangeMax) {
+		return fmt.Errorf("公网端口 %d 不在服务端允许的端口范围 [%d-%d] 内", in.RemotePort, s.portRangeMin, s.portRangeMax)
 	}
 	if in.LocalIP == "" {
 		in.LocalIP = "127.0.0.1"
@@ -620,7 +666,7 @@ func (s *Store) AddMapping(tunnelID string, in MappingInput) (*Mapping, error) {
 	if len(t.Mappings) >= 30 {
 		return nil, fmt.Errorf("单条隧道最多添加 30 个端口映射")
 	}
-	if err := validateMappingInput(&in, t.AllowRemoteTargets); err != nil {
+	if err := s.validateMappingInput(&in, t.AllowRemoteTargets); err != nil {
 		return nil, err
 	}
 	if err := s.checkSubdomainConflictLocked(tunnelID, in.Subdomain); err != nil {
@@ -662,7 +708,7 @@ func (s *Store) UpdateMapping(tunnelID, mappingID string, in MappingInput) error
 	if t == nil {
 		return fmt.Errorf("隧道不存在")
 	}
-	if err := validateMappingInput(&in, t.AllowRemoteTargets); err != nil {
+	if err := s.validateMappingInput(&in, t.AllowRemoteTargets); err != nil {
 		return err
 	}
 	if err := s.checkSubdomainConflictLocked(tunnelID, in.Subdomain); err != nil {

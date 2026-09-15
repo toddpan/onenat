@@ -218,6 +218,9 @@ func (c *Control) registerTunnel(rawTunnelReq *msg.ReqTunnel) {
 		c.conn.Debug("Registering new tunnel")
 		t, err := NewTunnel(&tunnelReq, c)
 		if err != nil {
+			// surface rejections (privileged/out-of-range ports, ...) in the
+			// server log: operators tune -portRange from these lines
+			c.conn.Warn("Rejected tunnel %s %q: %v", proto, rawTunnelReq.Name, err)
 			c.out <- &msg.NewTunnel{Error: err.Error(), ReqId: rawTunnelReq.ReqId, Name: rawTunnelReq.Name}
 			// classic clients die when their only tunnel fails; managed
 			// clients stay connected so the dashboard can show the error

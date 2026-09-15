@@ -72,7 +72,10 @@ type MappingView struct {
 	Error        string `json:"error"`
 	AppName      string `json:"app_name,omitempty"` // 关联应用名 (UI 展示)
 	AuthOverride bool   `json:"auth_override"`      // 实例级凭证覆盖 (UI 徽标)
-	AuthType     string `json:"auth_type,omitempty"`
+	// AuthInheritedShared: 未配实例凭证、但同一应用被 ≥2 条映射共用 ⇒
+	// 当前生效的是"应用默认凭证", 通常只对其中一台实例有效 (危)
+	AuthInheritedShared bool   `json:"auth_inherited_shared,omitempty"`
+	AuthType            string `json:"auth_type,omitempty"`
 }
 
 // MarshalJSON: 内嵌 *Mapping 的密文安全 MarshalJSON 会被提升并遮蔽
@@ -93,6 +96,11 @@ func (v MappingView) MarshalJSON() ([]byte, error) {
 	}
 	// 视图字段优先: auth_type 已按「覆盖 > 应用默认」富化
 	obj["auth_override"] = v.AuthOverride
+	if v.AuthInheritedShared {
+		// 该映射没配实例凭证, 但确实有别的映射共用同一应用 ⇒ 现在取到的是
+		// 应用默认凭证, 通常只对其中一台实例有效 (UI/客户端据此给出提示)
+		obj["auth_inherited_shared"] = true
+	}
 	if v.AuthType != "" {
 		obj["auth_type"] = v.AuthType
 	}
@@ -461,6 +469,12 @@ func (d *Dashboard) apiPatchMapping(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// 凭证操作必须留痕 (set/clear 都算): 2026-09-11 排障时发现映射级覆盖
+	// 写入无审计, 时间线只能靠 cred.read 反推。
+	if in.Auth != nil {
+		u := d.UserFromRequest(r)
+		d.AuditUser(r, u, "mapping.cred.set", m.ID, "ok", map[string]string{"auth_type": in.Auth.AuthType})
+	}
 	d.PushConfig(t.ID)
 	writeJSON(w, http.StatusOK, map[string]string{"ok": "1"})
 }
@@ -700,8 +714,12 @@ type ResourceMapping struct {
 	// AuthOverride=true 表示该映射设置了实例级凭证覆盖, 凭证请取
 	// /api/v1/mappings/:id/credentials (resolved_from=mapping);
 	// false 时取到的也是同一端点 (resolved_from=app), 字段仅为提示。
-	AuthOverride bool   `json:"auth_override"`
-	AuthType     string `json:"auth_type"` // 有效认证类型: 覆盖 ?? 应用默认
+	AuthOverride bool `json:"auth_override"`
+	// AuthInheritedShared=true: 本映射未配实例凭证, 但同一应用被 ≥2 条映射
+	// 共用 ⇒ 现在取到的是应用默认凭证 (resolved_from=app), 通常只对其中的
+	// 一台实例有效; 客户端(如 WorkBuddy)应据此提示"该映射未配实例凭证"。
+	AuthInheritedShared bool   `json:"auth_inherited_shared,omitempty"`
+	AuthType            string `json:"auth_type"` // 有效认证类型: 覆盖 ?? 应用默认
 }
 
 // fillAppViews resolves MappingView.AppName for UI rendering.
@@ -712,6 +730,8 @@ func (d *Dashboard) fillAppViews(t *Tunnel, rt *RuntimeView, out *[]MappingView)
 			if a := d.store.AppByID(m.AppID); a != nil {
 				mv.AppName = a.Name
 			}
+			// 未配实例凭证 + 应用被多条映射共用 ⇒ 继承的默认凭证多半对不上这台
+			mv.AuthInheritedShared = m.Auth == nil && d.store.AppMappingCount(m.AppID) > 1
 		}
 		*out = append(*out, mv)
 	}
@@ -746,6 +766,9 @@ func (d *Dashboard) apiV1Resources(w http.ResponseWriter, r *http.Request) {
 			if m.Auth != nil {
 				rm.AuthOverride = true
 				rm.AuthType = m.Auth.AuthType
+			} else if m.AppID != "" && d.store.AppMappingCount(m.AppID) > 1 {
+				// 没配实例凭证 + 应用被多台实例共用 ⇒ 默认凭证多半对不上这台
+				rm.AuthInheritedShared = true
 			}
 			if m.AppID != "" {
 				// 技能/应用元数据随映射一起下发 (技能 URL 烘入调用方 KEY, 免头直下); 凭证永不内嵌

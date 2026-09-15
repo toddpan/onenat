@@ -152,22 +152,42 @@ func NewTunnel(m *msg.ReqTunnel, ctl *Control) (t *Tunnel, err error) {
 			return nil
 		}
 
-			// use the custom remote port you asked for
-			if t.req.RemotePort != 0 {
-				if t.req.RemotePort < 1024 {
-					err = fmt.Errorf("Privileged remote port %d is not allowed (< 1024)", t.req.RemotePort)
-					return nil, err
+		// bindTcpAuto binds a public listener honoring the configured
+		// port range: candidates are drawn at random from inside the
+		// range first; when the range is unrestricted (or every
+		// candidate is taken) it falls back to an OS-assigned port.
+		bindTcpAuto := func() error {
+			if portRangeConfigured() {
+				for i := 0; i < portRangeAutoAttempts; i++ {
+					if bindTcp(randomPortInRange()) == nil {
+						return nil
+					}
 				}
-				if bindTcp(int(t.req.RemotePort)) != nil {
-					// e.g. server restarted while the client auto-reconnected
-					// and the old socket was not released yet. Fall back to a
-					// random port so the mapping still serves; the dashboard
-					// shows the real endpoint from the tunnel registry.
-					t.ctl.conn.Warn("Custom port %d unavailable, falling back to a random port", t.req.RemotePort)
-					bindTcp(0)
-				}
-				return
+				t.ctl.conn.Warn("No free port in range %s after %d attempts, falling back to an OS-assigned port", portRangeDesc(), portRangeAutoAttempts)
 			}
+			return bindTcp(0)
+		}
+
+		// use the custom remote port you asked for
+		if t.req.RemotePort != 0 {
+			if t.req.RemotePort < 1024 {
+				err = fmt.Errorf("Privileged remote port %d is not allowed (< 1024)", t.req.RemotePort)
+				return nil, err
+			}
+			if !portRangeAllowed(int(t.req.RemotePort)) {
+				err = fmt.Errorf("Public port %d is outside the allowed mapping range %s", t.req.RemotePort, portRangeDesc())
+				return nil, err
+			}
+			if bindTcp(int(t.req.RemotePort)) != nil {
+				// e.g. server restarted while the client auto-reconnected
+				// and the old socket was not released yet. Fall back to a
+				// random port so the mapping still serves; the dashboard
+				// shows the real endpoint from the tunnel registry.
+				t.ctl.conn.Warn("Custom port %d unavailable, falling back to a random port", t.req.RemotePort)
+				bindTcpAuto()
+			}
+			return
+		}
 
 		// try to return to you the same port you had before
 		cachedUrl := tunnelRegistry.GetCachedRegistration(t)
@@ -178,6 +198,10 @@ func NewTunnel(m *msg.ReqTunnel, ctl *Control) (t *Tunnel, err error) {
 			port, err = strconv.Atoi(portPart)
 			if err != nil {
 				t.ctl.conn.Error("Failed to parse cached url port as integer: %s", portPart)
+			} else if !portRangeAllowed(port) {
+				// a cached affinity from before the range was configured
+				// (or narrowed) must not leak outside the new bounds
+				t.ctl.conn.Warn("Cached port %d is outside the allowed range %s, assigning a new one", port, portRangeDesc())
 			} else {
 				// we have a valid, cached port, let's try to bind with it
 				if bindTcp(port) != nil {
@@ -190,7 +214,7 @@ func NewTunnel(m *msg.ReqTunnel, ctl *Control) (t *Tunnel, err error) {
 		}
 
 		// Bind for TCP connections
-		bindTcp(0)
+		bindTcpAuto()
 		return
 
 	case "http", "https":
@@ -321,9 +345,9 @@ func (t *Tunnel) HandlePublicConnection(publicConn conn.Conn) {
 		return
 	}
 
-		// To reduce latency handling tunnel connections, we employ the following curde heuristic:
-		// Whenever we take a proxy connection from the pool, replace it with a new one
-		util.PanicToError(func() { t.ctl.out <- &msg.ReqProxy{Token: t.ctl.issueProxyToken()} })
+	// To reduce latency handling tunnel connections, we employ the following curde heuristic:
+	// Whenever we take a proxy connection from the pool, replace it with a new one
+	util.PanicToError(func() { t.ctl.out <- &msg.ReqProxy{Token: t.ctl.issueProxyToken()} })
 
 	// no timeouts while connections are joined
 	proxyConn.SetDeadline(time.Time{})

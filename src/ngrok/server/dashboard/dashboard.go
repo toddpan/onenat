@@ -5,6 +5,7 @@
 package dashboard
 
 import (
+	"fmt"
 	htmpl "html/template"
 	"net/http"
 	"os"
@@ -26,6 +27,8 @@ type Options struct {
 	AdminPass    string // optional initial admin password (random when empty)
 	SecureCookie bool   // mark session cookies Secure (recommended when behind HTTPS)
 	SkillsDir    string // directory holding skill-file content (default <webData dir>/skills)
+	PortRangeMin int    // allowed public TCP port range lower bound; 0 = unrestricted
+	PortRangeMax int    // allowed public TCP port range upper bound; 0 = unrestricted
 }
 
 type Dashboard struct {
@@ -54,6 +57,15 @@ type Dashboard struct {
 // SkillsDir returns the configured skill-content directory.
 func (d *Dashboard) SkillsDir() string { return d.opts.SkillsDir }
 
+// PortRangeHint renders the configured public-port range for UI hints,
+// e.g. "30000-40000"; empty when unrestricted.
+func (d *Dashboard) PortRangeHint() string {
+	if d.opts.PortRangeMin > 0 && d.opts.PortRangeMax > 0 {
+		return fmt.Sprintf("%d-%d", d.opts.PortRangeMin, d.opts.PortRangeMax)
+	}
+	return ""
+}
+
 // SetAuditLog installs the audit writer (wired at startup).
 func (d *Dashboard) SetAuditLog(a *AuditLog) { d.audit = a }
 
@@ -79,6 +91,8 @@ func New(opts Options) (*Dashboard, error) {
 		return nil, err
 	}
 	store.SetCredentialKey(masterKey)
+	// 公网端口映射范围策略 (服务端 -portRange 下发到后台校验层)
+	store.SetPortRange(opts.PortRangeMin, opts.PortRangeMax)
 	// 审计日志: 与数据文件同目录
 	if err := os.MkdirAll(d.skillsDirResolved(), 0700); err != nil {
 		return nil, err
@@ -147,6 +161,9 @@ func (d *Dashboard) SeedBuiltinApps() {
 	have := map[string]bool{}
 	for _, a := range d.store.Apps(u.ID, true) {
 		have[a.Name] = true
+		if def, ok := builtinByName(a.Name); ok && def.Type == "ssh" {
+			d.warnIfBuiltinSkillStale(a)
+		}
 	}
 	for _, def := range builtinApps {
 		if have[def.Name] {
@@ -180,6 +197,35 @@ func (d *Dashboard) SeedBuiltinApps() {
 		}
 		log.Info("oneNat dashboard: seeded builtin app %q (%s)", def.Name, a.ID)
 	}
+}
+
+// builtinByName 按名称查内置应用定义。
+func builtinByName(name string) (builtinAppDef, bool) {
+	for _, def := range builtinApps {
+		if def.Name == name {
+			return def, true
+		}
+	}
+	return builtinAppDef{}, false
+}
+
+// warnIfBuiltinSkillStale 检测存量安装里"仍是平台内置、但版本落后"的技能文档
+// （例如补齐「应用默认凭证 vs 映射实例凭证」指引之前种下的 usage.md）。
+// 只提示、不自动覆盖: 主人可能已在文档里补过自己机器的细节。刷新方式:
+// 在后台应用页更新该技能，或直接按当前模板重写文档内容。
+func (d *Dashboard) warnIfBuiltinSkillStale(a *App) {
+	sk := d.store.SkillByAppName(a.ID, "usage.md")
+	if sk == nil {
+		return
+	}
+	content, err := ReadSkillFile(d.skillsDirResolved(), a.ID, sk.ID, sk.Ext)
+	if err != nil {
+		return
+	}
+	if !builtinSSHSkillStale(string(content)) {
+		return
+	}
+	log.Warn("oneNat dashboard: 内置技能 %s/%s 仍是旧版内置模板(<%s): 缺少「应用默认凭证 vs 映射实例凭证」指引；一个应用被多条映射共用时容易误用应用默认凭证。请在后台应用页更新该技能文档。", a.Name, sk.Name, builtinSSHSkillRev)
 }
 
 // Store exposes the underlying store (used by the server package at startup).
@@ -329,6 +375,12 @@ func (d *Dashboard) route(w http.ResponseWriter, r *http.Request) {
 		d.skillDoc(w, r)
 	case p == "/skill/index.md":
 		d.skillIndexDoc(w, r)
+
+	// ---------- 配置导入/导出 (管理员) ----------
+	case p == "/api/config/export" && m == http.MethodGet:
+		d.requireAdmin(http.HandlerFunc(d.apiExportConfig)).ServeHTTP(w, r)
+	case p == "/api/config/import" && m == http.MethodPost:
+		d.requireAdmin(d.apiHandler(d.apiImportConfig)).ServeHTTP(w, r)
 
 	// ---------- tunnels api ----------
 	case p == "/api/me" && m == http.MethodGet:
