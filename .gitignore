@@ -23,3 +23,10 @@ onenat-dashboard.json
 onenat.log*
 onenat-console.log
 .DS_Store
+
+# DSH 运行痕迹 (会话上传 / 视觉路由产物), 非源码
+.dsh-uploads/
+.dsh-vision-router/
+
+# 含线上 API KEY 的导出, 严禁入库
+onenat-resources.json
