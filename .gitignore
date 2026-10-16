@@ -37,3 +37,13 @@ onenat-mobile/
 # 本地测试/设计产物
 out/
 .gocache/
+
+# Go 工具链与本地构建缓存 (oneNat 部署工作区)
+.tools/
+
+# vendored 依赖 (GOPATH 模式, 与 src/github.com 等同策略)
+src/golang.org/
+
+# oneNat 运行时产物 (含应用级密钥)
+skills/
+onenat-secret.key

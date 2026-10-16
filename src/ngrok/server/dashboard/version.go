@@ -13,7 +13,7 @@ import (
 //   -X ngrok/server/dashboard.ReleaseOverride=2026.09.15-beta1
 var (
 	// DefaultRelease 当前发行标识 (r 后缀在 Version() 中补)。发版改这一处。
-	DefaultRelease = "2026.09.15"
+	DefaultRelease = "2026.10.15"
 
 	// ReleaseOverride 编译期覆盖值 (留空=用 DefaultRelease)。
 	ReleaseOverride = ""

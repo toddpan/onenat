@@ -28,11 +28,11 @@ func TestInstallScriptRestartsExistingService(t *testing.T) {
 	}
 	script := b.String()
 
-	if !strings.Contains(script, "systemctl restart ngrok-client") {
-		t.Fatal("systemd branch must 'systemctl restart ngrok-client' so an already-running service picks up the new config/token")
+	if !strings.Contains(script, "systemctl restart onenat-client") {
+		t.Fatal("systemd branch must 'systemctl restart onenat-client' so an already-running service picks up the new config/token")
 	}
-	if strings.Contains(script, "enable --now ngrok-client") {
-		t.Fatal("stale 'systemctl enable --now ngrok-client' found: --now does not restart an active service")
+	if strings.Contains(script, "enable --now onenat-client") {
+		t.Fatal("stale 'systemctl enable --now onenat-client' found: --now does not restart an active service")
 	}
 	// nohup 分支同样必须先杀旧进程再启动 (重装生效)
 	if !strings.Contains(script, `pkill -f "ngrok.*managed"`) {
