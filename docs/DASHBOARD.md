@@ -325,7 +325,7 @@ GET /skill/onenat.md?key=    SKILL 文档(Markdown, 含认证与资源使用说�
 ```
 GET /api/deploy?id=<tunnelId>&key=<KEY>   返回该隧道的客户端配置文件文本(YAML)
 GET /install.sh                            一键安装脚本(SERVER 地址已烘焙)
-GET /dl/ngrok_<os>_<arch>                  客户端二进制分发
+GET /dl/onenat-client_<os>_<arch>                  客户端二进制分发
 ```
 
 `/api/deploy` 返回的配置文件内容（managed 模式实际读取的文件）：

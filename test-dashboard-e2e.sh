@@ -166,17 +166,17 @@ DEPLOY=$(curl -s -o /dev/null -w '%{http_code}' "$DASH/api/deploy?id=$TUNID&key=
 curl -sf "$DASH/api/deploy?id=$TUNID&key=$KEY" -o "$T/ngrok-managed.yml"
 grep -q "server_addr: 127.0.0.1:14449" "$T/ngrok-managed.yml" && ok "部署配置含 server_addr" || bad "部署配置内容异常"
 grep -q "tunnel_id: $TUNID" "$T/ngrok-managed.yml" && ok "部署配置含 tunnel_id" || bad "配置缺 tunnel_id"
-SZ=$(curl -sf "$DASH/dl/ngrok_linux_amd64" | wc -c)
-[ "$SZ" -gt 1000000 ] && ok "客户端二进制分发 /dl ($(du -h dl/ngrok_linux_amd64 | cut -f1))" || bad "/dl 分发: $SZ 字节"
+SZ=$(curl -sf "$DASH/dl/onenat-client_linux_amd64" | wc -c)
+[ "$SZ" -gt 1000000 ] && ok "客户端二进制分发 /dl ($(du -h dl/onenat-client_linux_amd64 | cut -f1))" || bad "/dl 分发: $SZ 字节"
 curl -sf "$DASH/install.sh" | head -2 | grep -q "install" && ok "install.sh 可获取" || bad "install.sh"
 # MD5 幂等: 内嵌校验值与 dl 目录真实 MD5 一致, 且含跳过/校验逻辑
-EXPECT_MD5=$(md5 -q dl/ngrok_linux_amd64)
+EXPECT_MD5=$(md5 -q dl/onenat-client_linux_amd64)
 INSTALL_SH=$(curl -sf "$DASH/install.sh")
 echo "$INSTALL_SH" | grep -q "$EXPECT_MD5" && ok "install.sh 内嵌 dl 二进制真实 MD5" || bad "install.sh MD5 缺失/不符"
 echo "$INSTALL_SH" | grep -q "跳过下载" && ok "install.sh 含 MD5 幂等跳过逻辑" || bad "install.sh 缺跳过逻辑"
 echo "$INSTALL_SH" | grep -q "下载校验失败" && ok "install.sh 含下载后 MD5 校验" || bad "install.sh 缺下载校验"
 # 重装幂等: systemd 分支必须 restart (而非仅 enable --now), 否则已运行的旧进程不会加载新密钥
-echo "$INSTALL_SH" | grep -q "systemctl restart ngrok-client" && ok "install.sh 已运行服务会 restart 生效" || bad "install.sh 缺 restart (重装不生效)"
+echo "$INSTALL_SH" | grep -q "systemctl restart onenat-client" && ok "install.sh 已运行服务会 restart 生效" || bad "install.sh 缺 restart (重装不生效)"
 sh -n <(echo "$INSTALL_SH") 2>/dev/null && ok "install.sh 语法合法 (sh -n)" || bad "install.sh 语法错误"
 C=$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' "$DASH/install.ps1")
 [ "$C" = "200" ] && ok "install.ps1 可获取(Windows)" || bad "install.ps1: $C"
