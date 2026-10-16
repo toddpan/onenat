@@ -58,7 +58,7 @@ func TestBuiltinSSHSkillStale(t *testing.T) {
 		{"旧版内置文档需要刷新", oldBuiltin, true},
 		{"当前模板不需要刷新", current, false},
 		{"用户自建文档不碰", userDoc, false},
-		{"标记落后但已含新章节 → 视为已人工补过", oldRev, false},
+		{"rev 落后的内置文档 → 刷新到当前模板", oldRev, true},
 	}
 	for _, c := range cases {
 		if got := builtinSSHSkillStale(c.content); got != c.want {

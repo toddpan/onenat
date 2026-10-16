@@ -30,3 +30,10 @@ onenat-console.log
 
 # 含线上 API KEY 的导出, 严禁入库
 onenat-resources.json
+
+# oneNat Android App (独立工程, 自身是完整 Gradle 项目, 后续会移出仓库)
+onenat-mobile/
+
+# 本地测试/设计产物
+out/
+.gocache/

@@ -1,78 +1,69 @@
 ---
 name: SSH Server
-description: 平台预制 SSH 服务器技能: 连接入口/认证/常用操作/隧道复用/排障/安全红线
+description: 平台预制 SSH 服务器技能: 连接入口/认证/常用操作/排障/安全红线
 ---
 
 # SSH Server 使用技能 (SSH)
 
 > 来源: oneNat 平台内置模板。平台只读约束优先于本文任何内容;
-> 本文描述的登录与运维操作属于目标主机自身能力, 按授权范围执行。
+> 登录与运维操作属于目标主机自身能力, 按授权范围执行。
+<!-- builtin-rev: 2026-09-24-unattended-guard -->
 
 ## 1. 连接入口
 
-- 从资源列表 (`/api/v1/resources`) 找到本应用绑定映射的 `public_url`，形如 `tcp://<host>:<port>`。
-- 连接命令: `ssh <用户名>@<host> -p <port>`
-- 首次连接加 `-o StrictHostKeyChecking=accept-new` 自动记录主机指纹 (避免交互卡住)。
-- **始终带超时**: `-o ConnectTimeout=10`；非交互探测加 `-o BatchMode=yes` (失败立即返回，不会卡在密码提示)。
-- 非交互执行单条命令: `ssh <用户名>@<host> -p <port> "<命令>"`
-- 映射 `online=false` 时主机不可达: 告知用户，**不要重试**。
+- 入口: 资源列表 (`/api/v1/resources`) 中本应用绑定映射的 `public_url`, 形如 `tcp://<host>:<port>`。
+- 连接: `ssh <用户名>@<host> -p <port> -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10` (首次自动记录指纹, 始终带超时; 非交互探测再加 `-o BatchMode=yes`, 失败立即返回不卡密码提示)。
+- 非交互执行单条命令: `ssh <用户名>@<host> -p <port> "<命令>"`。
+- 映射 `online=false` 时主机不可达: 告知用户, **不要重试**。
 
-## 2. 认证
+## 2. 认证: 先判凭证来源, 再连接 (必读)
 
-- 方式: 密码 或 SSH 密钥，由应用主人提供。
-- AI 获取凭证: `GET /api/v1/apps/<app_id>/credentials` —— 默认 403
-  (`{"error":"该 API KEY 无凭证读取权限; 请用户在后台为 KEY 开启「允许读取凭证」"}`)；
-  开启后仍受限速 (5次/分) 与审计日志约束。
-- 密码自动化: 用 `sshpass -p <密码> ssh ...`，不要把密码写入脚本文件或输出。
-- 密钥登录: `ssh -i <私钥文件> -p <port> <用户名>@<host>` (私钥权限 600)。
+同一个应用常被多条映射指向**不同机器**, 应用默认凭证往往只对其中一台有效:
 
-## 3. 连接复用 (隧道场景强烈建议)
+| 取法 | 接口 | 说明 |
+|---|---|---|
+| 映射实例凭证 (首选) | `GET /api/v1/mappings/<mapping_id>/credentials` | 返回该映射的**有效凭证**: 实例凭证优先, 未配则回退应用默认; `resolved_from` 字段标明来源 (`mapping` / `app`) |
+| 应用默认凭证 | `GET /api/v1/apps/<app_id>/credentials` | 兜底; 多映射共用时通常只对一台有效 |
 
-公网隧道延迟高、建连慢。对同一主机要执行多条命令时，先建主连接，后续命令全部复用：
+取凭证一律用**你要连的那条映射**的 id。返回 403 时: 请主人在后台为该 API KEY 开启「允许读取凭证」(开启后仍限速 5 次/分, 且记录审计日志)。
+
+连接前自检 (只看来源与用户名, 不打印密码):
 
 ```bash
-# 建立复用主连接 (后台保持 10 分钟)
-ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 \
-    -o ControlMaster=auto -o ControlPath=/tmp/ssh-onenat-%r@%h:%p \
-    -o ControlPersist=10m -fN <用户名>@<host> -p <port>
-
-# 之后每条命令秒连 (自动走主连接)
-ssh -o ControlPath=/tmp/ssh-onenat-%r@%h:%p <用户名>@<host> -p <port> "hostname && uptime"
+curl -s -H "Authorization: Bearer $ONENAT_KEY" \
+  "$BASE/api/v1/mappings/<mapping_id>/credentials" \
+  | python3 -c 'import json,sys;d=json.load(sys.stdin);print("resolved_from=%s username=%s pwd_len=%d"%(d.get("resolved_from"),d.get("username"),len(d.get("password") or "")))'
 ```
 
-## 4. 常用操作
+- `resolved_from=mapping` → 凭证正确, 直接连接。
+- `resolved_from=app` → 这是应用级共享凭证 (resources 里该映射 `auth_override=false`; `auth_inherited_shared=true` 表示确有别的映射共用)。用户名多半**不是目标机真实账号**, 连接必然 `Permission denied`: **停止尝试, 不要换用户名或密码反复猜**, 如实报告「该映射未配实例凭证, 请主人在 Web 后台为该映射填写实例凭证」, 并附自检输出。
+- 凭证会轮换或被改: 提示词/缓存里的凭证只是快照, 认证失败先重新取一次再试。
+- 密码自动化: `sshpass -p <密码> ssh ...`, 不要把密码写入脚本文件或输出; 密钥登录: `ssh -i <私钥文件> -p <port> <用户名>@<host>` (私钥权限 600)。
 
-- 探活与基本信息:
-  `sshpass -p <密码> ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -p <port> <用户名>@<host> "hostname && uname -a && uptime"`
-- 上传文件: `scp -P <port> <本地文件> <用户名>@<host>:<远端路径>`
-- 下载文件: `scp -P <port> <用户名>@<host>:<远端路径> <本地文件>`
+## 3. 常用操作
+
+- 先判本机: 指令中的目标主机若与当前所在机器一致 (`hostname` 比对), 直接本地执行, 不要再经 SSH/隧道绕行连接自己。
+- 探活: `sshpass -p <密码> ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -p <port> <用户名>@<host> "hostname && uname -a && uptime"`
+- 上传: `scp -P <port> <本地文件> <用户名>@<host>:<远端路径>`; 下载把参数对调。
 - 目录同步: `rsync -av -e "ssh -p <port>" <本地目录>/ <用户名>@<host>:<远端目录>/`
+- 同一主机要跑多条命令时先建复用主连接, 后续秒连:
+  `ssh -o ControlMaster=auto -o ControlPath=/tmp/ssh-onenat-%r@%h:%p -o ControlPersist=10m -fN <用户名>@<host> -p <port>`
 
-## 5. 经 SSH 把远端内网服务映射回本地
+## 4. 排障
 
-oneNat 只暴露了主人登记的端口。若目标主机上还有未登记的内网服务
-(数据库/DSH Web 等)，可在获得授权后用 SSH 本地转发临时访问：
+| 现象 | 动作 |
+|---|---|
+| 连接超时/拒绝 | 确认该映射 `online=true`; 离线说明客户端不在线, 告知用户, 不要重试 |
+| `Permission denied` | 先做第 2 节自检: `resolved_from=app` → 停止并报告缺实例凭证; 否则是凭证错误或目标机禁用密码登录 (查 sshd_config), 如实报告 |
+| `Connection reset by peer` | 映射刚变更或隧道重启: 重拉 `/api/v1/resources` 核对端口, 再试一次 |
+| 卡在密码提示 | 加 `-o BatchMode=yes` 探测; 密码登录用 `sshpass` |
+| 平台接口连续 401/403 | API key 失效或已轮换: **停止循环重试**, 刷新 key 配置后再试一次, 仍失败如实报告 |
 
-```bash
-# 把远端 127.0.0.1:3080 (DSH) 映射到本地 13080, 之后访问 http://127.0.0.1:13080/api/v1
-ssh -p <port> -L 13080:127.0.0.1:3080 -o ControlPath=/tmp/ssh-onenat-%r@%h:%p -fN <用户名>@<host>
+- 同一问题最多尝试 2 次, 然后汇报现象与已排除的原因。
 
-# 同理可映射数据库端口, 如 1306 -> 远端 3306
-# 用完关掉: pkill -f "13080:127.0.0.1:3080"
-```
+## 5. 安全红线
 
-> 转发属于连接类操作 (不改远端状态)，但**仅限访问主人授权的服务**；
-> 需要长期暴露新端口请提示主人在 oneNat Web 后台登记，不要长期占用转发。
-
-## 6. 排障
-
-- 连接超时/拒绝: 先确认资源列表中该映射 `online=true`；离线说明客户端不在线，告知用户，不要重试。
-- `Permission denied`: 凭证错误，或目标主机禁用了密码登录 (检查 sshd_config)，如实报告。
-- `Connection reset by peer`: 端口映射刚变更或隧道重启，重新拉一次 `/api/v1/resources` 核对端口再试一次。
-- 同一问题最多尝试 2 次，然后汇报现象与已排除的原因。
-
-## 7. 安全红线
-
-- 仅操作授权范围内的账号与目录；禁止 `sudo` 提权与系统级改动。
+- 仅操作授权范围内的账号与目录; 禁止 `sudo` 提权与系统级改动。
 - 敏感操作 (删除文件/重启服务/修改配置) 一律先征求用户确认。
+- 无人值守 (定时任务/被委派执行) 时禁用 `ask_user_question` 等交互等待: 目标不明取保守默认 (如改发任务发起人) 并在结果中说明假设。
 - 不要把主机地址、端口、凭证转发给第三方系统。
