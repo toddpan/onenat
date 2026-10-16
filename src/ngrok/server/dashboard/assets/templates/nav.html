@@ -1,23 +1,97 @@
+{{define "theme_boot"}}<script>(function(){try{var t=localStorage.getItem("on_theme");if(t!=="light"&&t!=="dark"){t=window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"}document.documentElement.setAttribute("data-theme",t)}catch(e){}})();</script>{{end}}
+
+{{define "icon"}}<svg class="ic" aria-hidden="true"><use href="#i-{{.}}"/></svg>{{end}}
+
+{{/*
+  SVG 图标精灵: 24x24 线性图标, stroke 样式由 .ic 统一提供。
+  新增图标: 追加 symbol id="i-xxx" 即可, 模板里用 {{template "icon" "xxx"}}。
+*/}}
+{{define "sprite"}}<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.75 12 3l9 7.75"/><path d="M5 9.5V21h14V9.5"/><path d="M9.5 21v-6h5v6"/></symbol>
+  <symbol id="i-tunnel" viewBox="0 0 24 24"><path d="M4 20v-8a8 8 0 0 1 16 0v8"/><path d="M12 20v-5.5"/><path d="M2 20h20"/></symbol>
+  <symbol id="i-app" viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5V8z"/><path d="m3 8 9 5 9-5"/><path d="M12 13v8"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 9.3-9.3"/><path d="m15.5 7.5 3 3"/><path d="m12.5 10.5 2 2"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></symbol>
+  <symbol id="i-rows" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></symbol>
+  <symbol id="i-cards" viewBox="0 0 24 24"><rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></symbol>
+  <symbol id="i-chevron-r" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="i-external" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14 21 3"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-3.5 8-10V5l-8-3-8 3v7c0 6.5 8 10 8 10z"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6"/><path d="M12 19h8"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-zap" viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></symbol>
+  <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><path d="M6 6h.01M6 18h.01"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="m21.7 18-8-14a2 2 0 0 0-3.4 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3z"/><path d="M12 9v4M12 17h.01"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-tool" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></symbol>
+  <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M22 12h-4l-3 8-6-16-3 8H2"/></symbol>
+</svg>{{end}}
+
+{{define "overlays"}}
+<div id="toasts" class="toasts" aria-live="polite"></div>
+<div id="modal" class="modal hidden" onclick="if(event.target===this)hideModal()">
+  <div class="modal-box" id="modal-box" role="dialog" aria-modal="true"></div>
+</div>
+{{end}}
+
 {{define "nav"}}
-<header class="mobile-header">
-  <div class="brand"><span class="brand-dot">●</span> oneNat</div>
-  <button class="nav-toggle" onclick="toggleMobileNav(event)" aria-label="Toggle Menu">
-    <span class="bar"></span>
-    <span class="bar"></span>
-    <span class="bar"></span>
+{{template "sprite"}}
+<header class="topbar">
+  <button class="icon-btn nav-toggle" onclick="toggleMobileNav(event)" aria-label="打开菜单">
+    <svg class="ic" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+  </button>
+  <a class="topbar-brand" href="/"><span class="brand-mark brand-mark-sm"></span> oneNat</a>
+  <button class="icon-btn theme-toggle" data-theme-toggle title="切换主题" aria-label="切换主题">
+    <svg class="ic ic-sun" aria-hidden="true"><use href="#i-sun"/></svg>
+    <svg class="ic ic-moon" aria-hidden="true"><use href="#i-moon"/></svg>
   </button>
 </header>
 <div class="nav-backdrop" id="nav-backdrop" onclick="closeMobileNav()"></div>
 <aside class="sidebar" id="sidebar">
-  <div class="brand desktop-brand"><span class="brand-dot">●</span> oneNat</div>
-  <a href="/" class="side-link {{if eq .Page "tunnels"}}active{{end}}"><span class="ico">⇄</span>隧道</a>
-  <a href="/apps" class="side-link {{if eq .Page "apps"}}active{{end}}"><span class="ico">📦</span>应用</a>
-  {{if .IsAdmin}}<a href="/users" class="side-link {{if eq .Page "users"}}active{{end}}"><span class="ico">☺</span>用户管理</a>{{end}}
-  <a href="/keys" class="side-link {{if eq .Page "keys"}}active{{end}}"><span class="ico">🔑</span>API 密钥</a>
+  <a class="brand" href="/" title="返回总览">
+    <span class="brand-mark"></span>
+    <span class="brand-text">oneNat<small>内网穿透 · 控制台</small></span>
+  </a>
+  <nav class="side-nav">
+    <a href="/" class="side-link {{if eq .Page "home"}}active{{end}}">{{template "icon" "home"}}<span>总览</span></a>
+    <a href="/tunnels" class="side-link {{if eq .Page "tunnels"}}active{{end}}">{{template "icon" "tunnel"}}<span>隧道</span></a>
+    <a href="/apps" class="side-link {{if eq .Page "apps"}}active{{end}}">{{template "icon" "app"}}<span>应用</span></a>
+    <a href="/keys" class="side-link {{if eq .Page "keys"}}active{{end}}">{{template "icon" "key"}}<span>API 密钥</span></a>
+    {{if .IsAdmin}}<div class="side-label">管理员</div>
+    <a href="/users" class="side-link {{if eq .Page "users"}}active{{end}}">{{template "icon" "users"}}<span>用户管理</span></a>{{end}}
+  </nav>
   <div class="side-foot">
-    <div class="side-version" title="oneNat 服务端版本">v{{.Version}}</div>
-    <div class="side-user">{{.User.Username}}</div>
-    <a href="/logout" class="side-link">退出登录</a>
+    <div class="side-user">
+      <span class="avatar">{{printf "%.1s" .User.Username}}</span>
+      <span class="side-user-meta">
+        <b>{{.User.Username}}</b>
+        <small>{{if .IsAdmin}}管理员{{else}}普通用户{{end}}</small>
+      </span>
+      <a href="/logout" class="icon-btn" title="退出登录">{{template "icon" "logout"}}</a>
+    </div>
+    <div class="side-foot-row">
+      <button class="theme-toggle btn btn-ghost btn-sm" data-theme-toggle title="切换明暗主题">
+        <svg class="ic ic-sun" aria-hidden="true"><use href="#i-sun"/></svg>
+        <svg class="ic ic-moon" aria-hidden="true"><use href="#i-moon"/></svg>
+        <span class="theme-name">主题</span>
+      </button>
+      <span class="side-version" title="oneNat 服务端版本">v{{.Version}}</span>
+    </div>
   </div>
 </aside>
 {{end}}

@@ -2,41 +2,54 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>API 密钥 · oneNat 管理后台</title>
+<title>API 密钥 · oneNat 控制台</title>
+{{template "theme_boot"}}
 <link rel="stylesheet" href="/static/style.css?v={{staticV}}">
 </head>
 <body>
 {{template "nav" .}}
 <main class="main">
-  <div class="page-head"><h1>API 密钥</h1></div>
+  <div class="page-head">
+    <div class="page-head-text">
+      <h1>API 密钥</h1>
+      <p class="muted">给 AI 助手发放只读凭据，随时可撤销</p>
+    </div>
+  </div>
 
-  <div class="hint" style="margin-bottom:18px">
-    ⓘ API 密钥用于让 AI agent（通过 SKILL）**只读**访问你名下的隧道资源：
-    查询资源列表、获取 SSH / Web 公网入口。AI 没有创建、修改、删除任何隧道或端口的权限。
-    「凭证读取」开启后该 KEY 可经 /api/v1/apps/:id/credentials 读取应用凭证（限速 5 次/分，全程审计），默认关闭。
-    泄露后撤销对应密钥即可。
+  <div class="hint card-hint">
+    {{template "icon" "shield"}}
+    <div>
+      API 密钥仅供 AI（经 SKILL）<b>只读</b>访问你名下的隧道资源：查询资源列表、获取 SSH / Web 公网入口。
+      没有创建、修改、删除任何隧道或端口的权限。「凭证读取」开启后该 KEY 可经
+      <code class="mono">/api/v1/apps/:id/credentials</code> 读取应用凭证（限速 5 次/分，全程审计），默认关闭。泄露后撤销对应密钥即可。
+    </div>
   </div>
 
   <div class="card">
     <div class="tbl-wrap">
       <table class="tbl">
-        <thead><tr><th>名称</th><th>KEY</th><th>凭证读取</th><th>创建时间</th><th>最近使用</th>{{if .IsAdmin}}<th>归属</th>{{end}}<th>操作</th></tr></thead>
+        <thead><tr><th>名称</th><th>KEY</th><th>凭证读取</th><th>创建时间</th><th>最近使用</th>{{if .IsAdmin}}<th>归属</th>{{end}}<th class="th-actions">操作</th></tr></thead>
         <tbody>
         {{range .Keys}}
           <tr>
             <td><b>{{.Name}}</b></td>
-            <td><input class="cmd mono" style="width:230px" id="key-{{.ID}}" readonly value="{{.Key}}">
-                <a class="mini" onclick="copyText(document.getElementById('key-{{.ID}}').value)">复制</a></td>
             <td>
-              {{if .CanReadCred}}<a class="badge badge-on" style="cursor:pointer" title="该 KEY 可经 /api/v1/apps/:id/credentials 读取应用凭证明文 (限速 5 次/分, 全程审计)。点击禁止" onclick="toggleKeyCred('{{.ID}}', false)">已允许</a>
-              {{else}}<a class="badge badge-off" style="cursor:pointer" title="该 KEY 不能读取应用凭证。点击允许 (限速 5 次/分, 全程审计)" onclick="toggleKeyCred('{{.ID}}', true)">禁止</a>{{end}}
+              <span class="cmd-row cmd-row-inline">
+                <input class="cmd mono cmd-key" id="key-{{.ID}}" readonly data-copy="{{.Key}}" value="{{printf "%.8s" .Key}}••••••••••••">
+                <button class="icon-btn" data-reveal-secret="#key-{{.ID}}" title="显示 / 隐藏">{{template "icon" "eye"}}</button>
+                <button class="icon-btn" data-copy-btn="#key-{{.ID}}" title="复制">{{template "icon" "copy"}}</button>
+              </span>
+            </td>
+            <td>
+              {{if .CanReadCred}}<button class="badge badge-on badge-btn" title="该 KEY 可读取应用凭证明文 (限速 5 次/分, 全程审计)。点击禁止" onclick="toggleKeyCred('{{.ID}}', false)">已允许</button>
+              {{else}}<button class="badge badge-off badge-btn" title="该 KEY 不能读取应用凭证。点击允许 (限速 5 次/分, 全程审计)" onclick="toggleKeyCred('{{.ID}}', true)">禁止</button>{{end}}
             </td>
             <td class="muted">{{fmtTime .CreatedAt}}</td>
             <td class="muted">{{if .LastUsedAt}}{{fmtTime .LastUsedAt}}{{else}}从未{{end}}</td>
-            {{if $.IsAdmin}}<td>{{.OwnerName}}</td>{{end}}
-            <td>
-              <a class="mini" onclick="showSkillPrompt('{{.ID}}')">AI 安装提示词</a>
-              <a class="mini danger" onclick="delKey('{{.ID}}', '{{.Name}}')">撤销</a>
+            {{if $.IsAdmin}}<td class="muted">{{.OwnerName}}</td>{{end}}
+            <td class="td-actions">
+              <button class="mini" onclick="showSkillPrompt('{{.ID}}')">AI 提示词</button>
+              <button class="mini danger" onclick="delKey('{{.ID}}', '{{.Name}}')">撤销</button>
             </td>
           </tr>
         {{else}}
@@ -48,20 +61,16 @@
   </div>
 
   <div class="card">
-    <div class="card-title">新建 API 密钥</div>
+    <div class="card-head"><div class="card-title">{{template "icon" "plus"}}新建 API 密钥</div></div>
     <form class="inline-form" onsubmit="return createKey(this)">
       <input name="name" placeholder="名称, 如: 我的AI助手" required>
       <button class="btn btn-primary" type="submit">创建</button>
     </form>
   </div>
 </main>
-
-<div id="modal" class="modal hidden" onclick="if(event.target===this)hideModal()">
-  <div class="modal-box" id="modal-box"></div>
-</div>
-<div id="toast" class="toast hidden"></div>
+{{template "overlays"}}
 <script>
-window.PAGE={role:"{{if .IsAdmin}}admin{{else}}user{{end}}"};
+window.PAGE={role:"{{if .IsAdmin}}admin{{else}}user{{end}}",page:"keys"};
 window.KEY_PROMPTS={
 {{range .Keys}}"{{.ID}}": {{toJSON .InstallPrompt}},
 {{end}}};

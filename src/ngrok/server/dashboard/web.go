@@ -102,7 +102,110 @@ type tunnelsPageData struct {
 	Q       string
 	Status  string
 	Tunnels []TunnelListItem
-	Users   []*User // admin: owner select in create modal
+	All     []TunnelListItem // 未过滤全量 (前端实时刷新/统计用)
+	Users   []*User          // admin: owner select in create modal
+}
+
+// homePageData 驱动总览页: 一次聚合可见隧道的运行时状态,
+// 避免前端逐条轮询拼装。
+type homePageData struct {
+	Page    string
+	User    *User
+	IsAdmin bool
+	Version string
+	Node    string // 服务端节点地址 (隧道域名)
+	Domain  string // 公网访问域名提示
+
+	Tunnels       []TunnelListItem
+	TotalTunnels  int
+	OnlineTunnels int
+	OnlinePct     int64 // 在线率 (0-100, 整数)
+	TotalMappings int
+	LiveEndpoints int // 已开通公网入口数
+	WeekTotal     int64
+	TodayTotal    int64
+	Weekly        []DayTraffic // 聚合 7 天 (旧→新)
+	MaxWeekly     int64
+
+	AppsCount  int
+	KeysCount  int
+	UsersCount int // 仅管理员统计
+
+	Recent []homeRecentConn
+}
+
+type homeRecentConn struct {
+	TunnelID   string    `json:"tunnel_id"`
+	TunnelName string    `json:"tunnel_name"`
+	ClientAddr string    `json:"client_addr"`
+	PublicURL  string    `json:"public_url"`
+	BytesIn    int64     `json:"bytes_in"`
+	BytesOut   int64     `json:"bytes_out"`
+	Time       time.Time `json:"time"`
+}
+
+func (d *Dashboard) pageHome(w http.ResponseWriter, r *http.Request) {
+	u := d.UserFromRequest(r)
+	admin := u.Role == "admin"
+
+	all := d.store.Tunnels(u.ID, admin)
+	data := &homePageData{
+		Page: "home", User: u, IsAdmin: admin, Version: d.Version(),
+		Node:   d.opts.Domain,
+		Domain: d.opts.Domain,
+	}
+	weekly := make([]int64, 7)
+	today := time.Now().Format("2006-01-02")
+	var recent []homeRecentConn
+	for _, t := range all {
+		item := d.tunnelListItem(t)
+		data.TotalTunnels++
+		data.TotalMappings += item.MappingCount
+		if item.Online {
+			data.OnlineTunnels++
+		}
+		data.LiveEndpoints += len(item.Endpoints)
+		rt := d.RuntimeView(t.ID)
+		for i, day := range rt.WeeklyTraffic {
+			if i >= 0 && i < len(weekly) {
+				weekly[i] += day.Bytes
+			}
+			if day.Day == today {
+				data.TodayTotal += day.Bytes
+			}
+		}
+		data.WeekTotal += item.WeekBytes
+		for _, c := range rt.Conns { // Conns 新→旧
+			recent = append(recent, homeRecentConn{
+				TunnelID: t.ID, TunnelName: t.Name, ClientAddr: c.ClientAddr,
+				PublicURL: c.PublicURL, BytesIn: c.BytesIn, BytesOut: c.BytesOut, Time: c.Time,
+			})
+		}
+		data.Tunnels = append(data.Tunnels, item)
+	}
+	if data.TotalTunnels > 0 {
+		data.OnlinePct = int64(data.OnlineTunnels) * 100 / int64(data.TotalTunnels)
+	}
+	for i := 6; i >= 0; i-- {
+		day := time.Now().AddDate(0, 0, -i).Format("2006-01-02")
+		b := weekly[6-i]
+		data.Weekly = append(data.Weekly, DayTraffic{Day: day, Bytes: b})
+		if b > data.MaxWeekly {
+			data.MaxWeekly = b
+		}
+	}
+	sort.Slice(recent, func(i, j int) bool { return recent[i].Time.After(recent[j].Time) })
+	if len(recent) > 12 {
+		recent = recent[:12]
+	}
+	data.Recent = recent
+
+	data.AppsCount = len(d.store.Apps(u.ID, admin))
+	data.KeysCount = len(d.store.ApiKeys(u.ID, admin))
+	if admin {
+		data.UsersCount = len(d.store.Users())
+	}
+	d.tpl.ExecuteTemplate(w, "page_home", data)
 }
 
 type tunnelDetailPageData struct {
@@ -247,6 +350,9 @@ func (d *Dashboard) pageTunnels(w http.ResponseWriter, r *http.Request) {
 
 	data := &tunnelsPageData{
 		Page: "tunnels", User: u, IsAdmin: admin, Version: d.Version(), Q: q, Status: status, Tunnels: items,
+	}
+	for _, t := range all {
+		data.All = append(data.All, d.tunnelListItem(t))
 	}
 	if admin {
 		data.Users = d.store.Users()

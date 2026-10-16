@@ -118,6 +118,10 @@ type TunnelListItem struct {
 	Online             bool      `json:"online"`
 	Protos             []string  `json:"protos"`
 	CreatedAt          time.Time `json:"created_at"`
+	// UI 富化字段: 列表/总览页直接展示, 免去逐条二次请求
+	MappingCount int      `json:"mapping_count"`
+	WeekBytes    int64    `json:"week_bytes"`
+	Endpoints    []string `json:"endpoints,omitempty"` // 已开通的公网入口 (最多 3 条)
 }
 
 type TunnelDetail struct {
@@ -138,10 +142,20 @@ func (d *Dashboard) tunnelListItem(t *Tunnel) TunnelListItem {
 		item.OwnerName = u.Username
 	}
 	seen := map[string]bool{}
+	rt := d.RuntimeView(t.ID)
+	for _, day := range rt.WeeklyTraffic {
+		item.WeekBytes += day.Bytes
+	}
 	for _, m := range t.Mappings {
 		if !seen[m.Proto] {
 			seen[m.Proto] = true
 			item.Protos = append(item.Protos, m.Proto)
+		}
+		item.MappingCount++
+		if len(item.Endpoints) < 3 {
+			if u := d.PublicEndpoint(m.ID, rt); u != "" {
+				item.Endpoints = append(item.Endpoints, u)
+			}
 		}
 	}
 	sort.Strings(item.Protos)
@@ -295,24 +309,8 @@ func (d *Dashboard) apiGetTunnel(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "隧道不存在")
 		return
 	}
-	item := d.tunnelListItem(t)
-	detail := TunnelDetail{
-		TunnelListItem: item,
-		Key:            t.Key,
-		Node:           d.opts.Domain,
-		Runtime:        d.RuntimeView(t.ID),
-	}
-	rt := detail.Runtime
-	for _, m := range t.Mappings {
-		mv := MappingView{Mapping: m, PublicURL: d.PublicEndpoint(m.ID, rt), Error: rt.Errors[m.ID]}
-		if m.AppID != "" {
-			if a := d.store.AppByID(m.AppID); a != nil {
-				mv.AppName = a.Name
-			}
-		}
-		detail.Mappings = append(detail.Mappings, mv)
-	}
-	writeJSON(w, http.StatusOK, detail)
+	// 与页面渲染同源: 复用 tunnelDetail, 保证应用徽标/凭证提示等富化字段一致
+	writeJSON(w, http.StatusOK, d.tunnelDetail(t))
 }
 
 func (d *Dashboard) apiPatchTunnel(w http.ResponseWriter, r *http.Request) {

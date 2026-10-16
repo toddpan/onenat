@@ -2,66 +2,101 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>隧道列表 · oneNat 管理后台</title>
+<title>隧道 · oneNat 控制台</title>
+{{template "theme_boot"}}
 <link rel="stylesheet" href="/static/style.css?v={{staticV}}">
 </head>
 <body>
 {{template "nav" .}}
 <main class="main">
   <div class="page-head">
-    <h1>隧道列表</h1>
-    {{if .IsAdmin}}<button class="btn btn-primary" onclick="showCreateTunnel()">＋ 创建新隧道</button>{{end}}
-  </div>
-
-  <div class="toolbar">
-    <form method="get" action="/" class="search">
-      <input type="hidden" name="status" value="{{.Status}}">
-      <input name="q" value="{{.Q}}" placeholder="搜索隧道名称 / ID">
-      <button class="btn">搜索</button>
-    </form>
-    <div class="tabs">
-      <a href="/?q={{.Q}}" class="{{if eq .Status ""}}active{{end}}">全部</a>
-      <a href="/?status=online&amp;q={{.Q}}" class="{{if eq .Status "online"}}active{{end}}">在线</a>
-      <a href="/?status=offline&amp;q={{.Q}}" class="{{if eq .Status "offline"}}active{{end}}">离线</a>
-      <a href="/?status=locked&amp;q={{.Q}}" class="{{if eq .Status "locked"}}active{{end}}">锁定</a>
+    <div class="page-head-text">
+      <h1>隧道</h1>
+      <p class="muted" id="t-sub">共 {{len .Tunnels}} 条</p>
+    </div>
+    <div class="page-actions">
+      {{if .IsAdmin}}<button class="btn btn-primary" onclick="showCreateTunnel()">{{template "icon" "plus"}}创建新隧道</button>{{end}}
     </div>
   </div>
 
-  <div class="card">
+  <div class="toolbar">
+    <div class="search-box">
+      {{template "icon" "search"}}
+      <input id="t-q" value="{{.Q}}" placeholder="搜索名称 / ID / 归属用户…" autocomplete="off">
+      <kbd>/</kbd>
+    </div>
+    <div class="seg" id="t-seg" role="tablist">
+      <a href="/tunnels?q={{.Q}}" data-v="" class="{{if eq .Status ""}}active{{end}}">全部 <b data-c="all"></b></a>
+      <a href="/tunnels?status=online&amp;q={{.Q}}" data-v="online" class="{{if eq .Status "online"}}active{{end}}">在线 <b data-c="online"></b></a>
+      <a href="/tunnels?status=offline&amp;q={{.Q}}" data-v="offline" class="{{if eq .Status "offline"}}active{{end}}">离线 <b data-c="offline"></b></a>
+      <a href="/tunnels?status=locked&amp;q={{.Q}}" data-v="locked" class="{{if eq .Status "locked"}}active{{end}}">锁定 <b data-c="locked"></b></a>
+    </div>
+    <div class="view-toggle" id="t-view" role="group" aria-label="视图切换">
+      <button data-view="table" class="active" title="列表视图">{{template "icon" "rows"}}</button>
+      <button data-view="cards" title="卡片视图">{{template "icon" "cards"}}</button>
+    </div>
+  </div>
+
+  <div id="t-table" class="card view-pane">
     <div class="tbl-wrap">
-      <table class="tbl">
+      <table class="tbl tbl-tunnels">
         <thead><tr>
-          <th>隧道名称</th><th>状态</th><th>协议</th><th>归属用户</th><th>创建时间</th><th>详情</th>
+          <th>隧道</th><th>状态</th><th>协议</th><th>端口</th><th>公网入口</th><th>近 7 天</th>{{if .IsAdmin}}<th>归属</th>{{end}}<th></th>
         </tr></thead>
-        <tbody>
+        <tbody id="t-rows">
         {{range .Tunnels}}
           <tr>
-            <td><span class="dot {{if .Online}}on{{else}}off{{end}}"></span>
-                <a class="tname" href="/t/{{.ID}}">{{.Name}}</a>
-                {{if .Locked}}<span class="chip chip-lock">锁定</span>{{end}}</td>
+            <td><span class="dot {{if .Online}}on{{else}}off{{end}}"></span><a class="tname" href="/t/{{.ID}}">{{.Name}}</a>{{if .Locked}} {{template "icon" "lock"}}{{end}}</td>
             <td>{{if .Online}}<span class="badge badge-on">在线</span>{{else}}<span class="badge badge-off">离线</span>{{end}}</td>
-            <td>{{range .Protos}}<span class="chip">{{.}}</span> {{end}}</td>
-            <td>{{.OwnerName}}</td>
-            <td class="muted">{{fmtTime .CreatedAt}}</td>
-            <td><a class="arrow" href="/t/{{.ID}}">›</a></td>
+            <td>{{range .Protos}}<span class="chip chip-proto">{{.}}</span> {{end}}</td>
+            <td class="mono">{{.MappingCount}}</td>
+            <td class="cell-eps">{{range .Endpoints}}<span class="copy-chip mono" data-copy="{{.}}">{{.}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
+            <td class="mono muted">{{fmtBytes .WeekBytes}}</td>
+            {{if $.IsAdmin}}<td class="muted">{{.OwnerName}}</td>{{end}}
+            <td><a class="arrow" href="/t/{{.ID}}" title="详情">{{template "icon" "chevron-r"}}</a></td>
           </tr>
         {{else}}
-          <tr><td colspan="6" class="empty">暂无隧道{{if .IsAdmin}} — 点击右上角「创建新隧道」{{end}}</td></tr>
+          <tr><td colspan="8" class="empty">没有匹配的隧道{{if .IsAdmin}} — 点击右上角「创建新隧道」{{end}}</td></tr>
         {{end}}
         </tbody>
       </table>
     </div>
   </div>
+
+  <div id="t-cards" class="tunnel-cards view-pane" hidden>
+    {{range .Tunnels}}
+    <a class="tcard card" href="/t/{{.ID}}">
+      <div class="tcard-head">
+        <span class="dot {{if .Online}}on{{else}}off{{end}}"></span>
+        <b class="tcard-name">{{.Name}}</b>
+        {{if .Locked}}<span class="chip chip-lock">{{template "icon" "lock"}}锁定</span>{{end}}
+        <span class="badge {{if .Online}}badge-on{{else}}badge-off{{end}}">{{if .Online}}在线{{else}}离线{{end}}</span>
+      </div>
+      <div class="tcard-eps">
+        {{range .Endpoints}}<span class="copy-chip mono" data-copy="{{.}}">{{.}}</span>{{else}}<span class="muted small">公网入口待客户端上线后开通</span>{{end}}
+      </div>
+      <div class="tcard-foot">
+        <span>{{range .Protos}}<span class="chip chip-proto">{{.}}</span> {{end}}</span>
+        <span class="muted">{{.MappingCount}} 端口 · 7 天 {{fmtBytes .WeekBytes}}{{if .OwnerName}} · {{.OwnerName}}{{end}}</span>
+      </div>
+    </a>
+    {{else}}
+    <div class="card empty">
+      <p>没有匹配的隧道</p>
+      {{if .IsAdmin}}<button class="btn btn-primary btn-sm" onclick="showCreateTunnel()">创建新隧道</button>{{end}}
+    </div>
+    {{end}}
+  </div>
 </main>
-
-<div id="modal" class="modal hidden" onclick="if(event.target===this)hideModal()">
-  <div class="modal-box" id="modal-box"></div>
-</div>
-<div id="toast" class="toast hidden"></div>
-
+{{template "overlays"}}
 <script>
 window.PAGE = {
   role: "{{if .IsAdmin}}admin{{else}}user{{end}}",
+  page: "tunnels",
+  status: "{{.Status}}",
+  q: {{toJSON .Q}},
+  isAdmin: {{if .IsAdmin}}true{{else}}false{{end}},
+  all: {{toJSON .All}},
   users: [{{range .Users}}{{if .}}{id:"{{.ID}}",name:"{{.Username}}"},{{end}}{{end}}]
 };
 </script>

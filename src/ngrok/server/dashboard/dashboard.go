@@ -210,9 +210,8 @@ func builtinByName(name string) (builtinAppDef, bool) {
 }
 
 // warnIfBuiltinSkillStale 检测存量安装里"仍是平台内置、但版本落后"的技能文档
-// （例如补齐「应用默认凭证 vs 映射实例凭证」指引之前种下的 usage.md）。
-// 只提示、不自动覆盖: 主人可能已在文档里补过自己机器的细节。刷新方式:
-// 在后台应用页更新该技能，或直接按当前模板重写文档内容。
+// （例如精简重写之前种下的 usage.md）。只提示、不自动覆盖: 主人可能已在文档里
+// 补过自己机器的细节。刷新方式: 在后台应用页按当前模板更新该技能文档。
 func (d *Dashboard) warnIfBuiltinSkillStale(a *App) {
 	sk := d.store.SkillByAppName(a.ID, "usage.md")
 	if sk == nil {
@@ -225,7 +224,7 @@ func (d *Dashboard) warnIfBuiltinSkillStale(a *App) {
 	if !builtinSSHSkillStale(string(content)) {
 		return
 	}
-	log.Warn("oneNat dashboard: 内置技能 %s/%s 仍是旧版内置模板(<%s): 缺少「应用默认凭证 vs 映射实例凭证」指引；一个应用被多条映射共用时容易误用应用默认凭证。请在后台应用页更新该技能文档。", a.Name, sk.Name, builtinSSHSkillRev)
+	log.Warn("oneNat dashboard: 内置技能 %s/%s 仍是旧版内置模板(<%s): 建议在后台应用页按当前模板更新该技能文档 (新版为精简重写: 认证决策表 + 连接前自检)。", a.Name, sk.Name, builtinSSHSkillRev)
 }
 
 // Store exposes the underlying store (used by the server package at startup).
@@ -321,6 +320,8 @@ func (d *Dashboard) route(w http.ResponseWriter, r *http.Request) {
 
 	// ---------- pages ----------
 	case p == "/" && m == http.MethodGet:
+		d.requireUser(http.HandlerFunc(d.pageHome)).ServeHTTP(w, r)
+	case p == "/tunnels" && m == http.MethodGet:
 		d.requireUser(http.HandlerFunc(d.pageTunnels)).ServeHTTP(w, r)
 	case p == "/t" || strings.HasPrefix(p, "/t/"):
 		if methodMismatch(w, r, http.MethodGet) {

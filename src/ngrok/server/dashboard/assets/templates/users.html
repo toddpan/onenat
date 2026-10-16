@@ -2,22 +2,28 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>用户管理 · oneNat 管理后台</title>
+<title>用户管理 · oneNat 控制台</title>
+{{template "theme_boot"}}
 <link rel="stylesheet" href="/static/style.css?v={{staticV}}">
 </head>
 <body>
 {{template "nav" .}}
 <main class="main">
-  <div class="page-head"><h1>用户管理</h1></div>
+  <div class="page-head">
+    <div class="page-head-text">
+      <h1>用户管理</h1>
+      <p class="muted">管理员可管理一切；普通用户仅使用名下资源</p>
+    </div>
+  </div>
 
   <div class="card">
     <div class="tbl-wrap">
       <table class="tbl">
-        <thead><tr><th>用户名</th><th>角色</th><th>名下隧道</th><th>创建时间</th><th>操作</th></tr></thead>
+        <thead><tr><th>用户名</th><th>角色</th><th>名下隧道</th><th>创建时间</th><th class="th-actions">操作</th></tr></thead>
         <tbody>
         {{range .Users}}
           <tr>
-            <td><b>{{.Username}}</b>{{if eq .Username $.User.Username}} <span class="chip">我</span>{{end}}</td>
+            <td><span class="user-cell"><span class="avatar avatar-sm">{{printf "%.1s" .Username}}</span><b>{{.Username}}</b>{{if eq .Username $.User.Username}} <span class="chip chip-ok">我</span>{{end}}</span></td>
             <td>
               <select onchange="setUserRole('{{.ID}}', this.value)">
                 <option value="admin" {{if eq .Role "admin"}}selected{{end}}>管理员</option>
@@ -26,9 +32,9 @@
             </td>
             <td class="muted">{{index $.TunnelCounts .Username}}</td>
             <td class="muted">{{fmtTime .CreatedAt}}</td>
-            <td>
-              <a class="mini" onclick="resetUserPwd('{{.Username}}')">重置密码</a>
-              <a class="mini danger" onclick="delUser('{{.Username}}')">删除</a>
+            <td class="td-actions">
+              <button class="mini" onclick="resetUserPwd('{{.Username}}')">重置密码</button>
+              <button class="mini danger" onclick="delUser('{{.Username}}')">删除</button>
             </td>
           </tr>
         {{end}}
@@ -38,7 +44,7 @@
   </div>
 
   <div class="card">
-    <div class="card-title">新建用户</div>
+    <div class="card-head"><div class="card-title">{{template "icon" "plus"}}新建用户</div></div>
     <form class="inline-form" onsubmit="return createUser(this)">
       <input name="username" placeholder="用户名" required>
       <input name="password" type="password" placeholder="密码 (至少6位)" required minlength="6">
@@ -47,9 +53,8 @@
     </form>
   </div>
 </main>
-
-<div id="toast" class="toast hidden"></div>
-<script>window.PAGE={role:"admin"};</script>
+{{template "overlays"}}
+<script>window.PAGE={role:"admin",page:"users"};</script>
 <script src="/static/app.js?v={{staticV}}"></script>
 </body>
 </html>{{end}}

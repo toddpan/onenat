@@ -1,0 +1,124 @@
+{{define "page_home"}}<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>总览 · oneNat 控制台</title>
+{{template "theme_boot"}}
+<link rel="stylesheet" href="/static/style.css?v={{staticV}}">
+</head>
+<body>
+{{template "nav" .}}
+<main class="main">
+  <header class="hero card">
+    <div class="hero-main">
+      <h1 id="greeting">你好，{{.User.Username}}</h1>
+      <p class="hero-sub muted">
+        <span id="today-str"></span><span class="hero-sep">·</span>节点
+        <b class="mono">{{.Node}}</b><span class="hero-sep">·</span>
+        <span class="pill pill-ok"><i class="pulse-dot"></i>服务运行中</span>
+      </p>
+    </div>
+    <div class="hero-actions">
+      {{if .IsAdmin}}<button class="btn btn-primary" onclick="showCreateTunnel()">{{template "icon" "plus"}}新建隧道</button>{{end}}
+      <a class="btn btn-ghost" href="/tunnels">管理隧道{{template "icon" "chevron-r"}}</a>
+    </div>
+  </header>
+
+  <section class="kpi-grid">
+    <div class="kpi card">
+      <div class="kpi-ico kpi-ico-blue">{{template "icon" "tunnel"}}</div>
+      <div class="kpi-meta"><div class="kpi-label">在线隧道</div>
+        <div class="kpi-value">{{.OnlineTunnels}}<small> / {{.TotalTunnels}}</small></div></div>
+      <div class="kpi-spark"><span class="kpi-pct">{{.OnlinePct}}%</span></div>
+    </div>
+    <div class="kpi card">
+      <div class="kpi-ico kpi-ico-violet">{{template "icon" "zap"}}</div>
+      <div class="kpi-meta"><div class="kpi-label">端口映射</div>
+        <div class="kpi-value">{{.TotalMappings}}<small> 个 · 已开通 {{.LiveEndpoints}}</small></div>
+        <div class="kpi-foot muted">{{if .IsAdmin}}应用 {{.AppsCount}} · 用户 {{.UsersCount}}{{else}}应用 {{.AppsCount}}{{end}}</div></div>
+    </div>
+    <div class="kpi card">
+      <div class="kpi-ico kpi-ico-green">{{template "icon" "download"}}</div>
+      <div class="kpi-meta"><div class="kpi-label">今日转发</div>
+        <div class="kpi-value">{{fmtBytes .TodayTotal}}</div>
+        <div class="kpi-foot muted">近 7 天 {{fmtBytes .WeekTotal}}</div></div>
+    </div>
+    <div class="kpi card">
+      <div class="kpi-ico kpi-ico-amber">{{template "icon" "key"}}</div>
+      <div class="kpi-meta"><div class="kpi-label">API 密钥</div>
+        <div class="kpi-value">{{.KeysCount}}<small> 把</small></div>
+        <div class="kpi-foot"><a href="/keys">管理密钥 {{template "icon" "chevron-r"}}</a></div></div>
+    </div>
+  </section>
+
+  <section class="home-grid">
+    <div class="card chart-card">
+      <div class="card-head">
+        <div class="card-title">{{template "icon" "pulse"}}流量趋势<small>近 7 天全部隧道合计</small></div>
+        <div class="card-head-side muted">峰值 {{fmtBytes .MaxWeekly}}</div>
+      </div>
+      <div class="area-chart" id="week-chart"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">{{template "icon" "tunnel"}}隧道速览<small>{{.TotalTunnels}} 条</small></div>
+        <a class="card-more" href="/tunnels">全部{{template "icon" "chevron-r"}}</a>
+      </div>
+      <div class="quick-list" id="home-tunnels">
+        {{range .Tunnels}}
+        <a class="quick-row" href="/t/{{.ID}}">
+          <span class="dot {{if .Online}}on{{else}}off{{end}}"></span>
+          <span class="quick-name"><b>{{.Name}}</b>
+            <small>{{range .Protos}}<span class="chip chip-proto">{{.}}</span> {{end}} {{.MappingCount}} 个端口</small></span>
+          <span class="quick-endpoints">
+            {{range .Endpoints}}<span class="copy-chip mono" data-copy="{{.}}" title="点击复制">{{.}}</span>{{end}}
+            {{if not .Endpoints}}<span class="muted small">未开通</span>{{end}}
+          </span>
+          {{template "icon" "chevron-r"}}
+        </a>
+        {{else}}
+        <div class="empty">
+          <p>还没有隧道</p>
+          {{if .IsAdmin}}<button class="btn btn-primary btn-sm" onclick="showCreateTunnel()">创建第一条隧道</button>{{end}}
+        </div>
+        {{end}}
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <div class="card-title">{{template "icon" "clock"}}最近连接活动<small>全部隧道 · 实时上报</small></div>
+    </div>
+    <div class="tbl-wrap">
+      <table class="tbl tbl-feed">
+        <thead><tr><th>时间</th><th>隧道</th><th>来源地址</th><th>公网入口</th><th>入 / 出流量</th></tr></thead>
+        <tbody>
+        {{range .Recent}}
+          <tr>
+            <td class="muted nowrap">{{fmtTime .Time}}</td>
+            <td><a class="tname" href="/t/{{.TunnelID}}">{{.TunnelName}}</a></td>
+            <td class="mono">{{.ClientAddr}}</td>
+            <td class="mono">{{if .PublicURL}}{{.PublicURL}}{{else}}—{{end}}</td>
+            <td class="mono nowrap">{{fmtBytes .BytesIn}} <span class="muted">/</span> {{fmtBytes .BytesOut}}</td>
+          </tr>
+        {{else}}
+          <tr><td colspan="5" class="empty">暂无连接记录 — 客户端有公网访问后会在这里实时出现</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+{{template "overlays"}}
+<script>
+window.PAGE = { role: "{{if .IsAdmin}}admin{{else}}user{{end}}", page: "home", users: [] };
+window.HOME = {
+  weekly: {{toJSON .Weekly}},
+  username: {{toJSON .User.Username}}
+};
+</script>
+<script src="/static/app.js?v={{staticV}}"></script>
+</body>
+</html>{{end}}

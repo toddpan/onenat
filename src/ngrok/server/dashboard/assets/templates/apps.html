@@ -2,43 +2,49 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>应用管理 · oneNat 管理后台</title>
+<title>应用 · oneNat 控制台</title>
+{{template "theme_boot"}}
 <link rel="stylesheet" href="/static/style.css?v={{staticV}}">
 </head>
 <body>
 {{template "nav" .}}
 <main class="main">
   <div class="page-head">
-    <h1>应用管理</h1>
-    <div>
-      {{if eq .User.Role "admin"}}<button class="btn" onclick="exportConfig()">⬇ 导出配置</button>
-      <button class="btn" onclick="showImportConfig()">⬆ 导入配置</button>{{end}}
-      <button class="btn btn-primary" onclick="showCreateApp()">＋ 注册新应用</button>
+    <div class="page-head-text">
+      <h1>应用</h1>
+      <p class="muted">内网系统的平台登记：名称 + 访问凭证 + AI 技能文件</p>
+    </div>
+    <div class="page-actions">
+      {{if eq .User.Role "admin"}}
+      <button class="btn btn-ghost" onclick="exportConfig()">{{template "icon" "download"}}导出配置</button>
+      <button class="btn btn-ghost" onclick="showImportConfig()">导入配置</button>
+      {{end}}
+      <button class="btn btn-primary" onclick="showCreateApp()">{{template "icon" "plus"}}注册新应用</button>
     </div>
   </div>
 
-  <div class="hint" style="margin-bottom:18px">
-    ⓘ 应用 = 内网系统的平台登记 (名称 + 访问凭证 + 技能文件)。端口映射必须关联一个应用；
-    AI 通过资源列表发现应用后，下载技能文件即可学会如何使用该系统。
+  <div class="hint card-hint">
+    {{template "icon" "app"}}
+    <div>端口映射必须关联一个应用；AI 通过资源列表发现应用后，下载技能文件即可学会如何使用该系统。</div>
   </div>
 
   <div class="card">
     <div class="tbl-wrap">
       <table class="tbl">
         <thead><tr>
-          <th>应用名称</th><th>类型</th><th>认证</th><th>技能</th><th>绑定端口</th><th>归属</th><th>更新时间</th><th>详情</th>
+          <th>应用名称</th><th>类型</th><th>认证</th><th>技能</th><th>绑定端口</th><th>归属</th><th>更新时间</th><th></th>
         </tr></thead>
         <tbody>
         {{range .Apps}}
           <tr>
             <td><a class="tname" href="/apps/{{.ID}}">{{.Name}}</a></td>
-            <td><span class="chip">{{.Type}}</span></td>
-            <td class="muted">{{.AuthType}}{{if .HasPassword}} · 🔒{{end}}{{if .HasApiKey}} · 🔑{{end}}</td>
-            <td>{{.SkillCount}} 个</td>
-            <td>{{.MappingCount}} 个</td>
-            <td>{{.OwnerName}}</td>
+            <td><span class="chip chip-proto">{{.Type}}</span></td>
+            <td class="muted">{{.AuthType}}{{if .HasPassword}} · {{template "icon" "lock"}}{{end}}{{if .HasApiKey}} · {{template "icon" "key"}}{{end}}</td>
+            <td class="muted">{{.SkillCount}} 个</td>
+            <td class="mono">{{.MappingCount}} 个</td>
+            <td class="muted">{{.OwnerName}}</td>
             <td class="muted">{{fmtTime .UpdatedAt}}</td>
-            <td><a class="arrow" href="/apps/{{.ID}}">›</a></td>
+            <td><a class="arrow" href="/apps/{{.ID}}" title="详情">{{template "icon" "chevron-r"}}</a></td>
           </tr>
         {{else}}
           <tr><td colspan="8" class="empty">还没有应用 — 点击右上角「注册新应用」，把内网系统接入平台</td></tr>
@@ -48,11 +54,7 @@
     </div>
   </div>
 </main>
-
-<div id="modal" class="modal hidden" onclick="if(event.target===this)hideModal()">
-  <div class="modal-box" id="modal-box"></div>
-</div>
-<div id="toast" class="toast hidden"></div>
+{{template "overlays"}}
 <script>
 window.PAGE={role:"{{if .IsAdmin}}admin{{else}}user{{end}}",page:"apps"};
 </script>

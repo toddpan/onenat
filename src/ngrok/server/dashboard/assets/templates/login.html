@@ -2,24 +2,44 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>登录 · oneNat 管理后台</title>
+<title>登录 · oneNat 控制台</title>
+{{template "theme_boot"}}
 <link rel="stylesheet" href="/static/style.css?v={{staticV}}">
 </head>
 <body class="login-body">
-  <div class="login-card">
-    <div class="login-brand">● oneNat <small>管理后台</small></div>
-    <div class="login-version">v{{.Version}}</div>
-    {{if .Error}}<div class="alert alert-err">{{.Error}}</div>{{end}}
-    <form method="post" action="/login">
-      <label class="field">用户名
-        <input name="username" autofocus required autocomplete="username">
-      </label>
-      <label class="field">密码
-        <input name="password" type="password" required autocomplete="current-password">
-      </label>
-      <button class="btn btn-primary btn-block" type="submit">登 录</button>
-    </form>
-  </div>
-  <script src="/static/app.js?v={{staticV}}"></script>
+{{template "sprite"}}
+<div class="login-wrap">
+  <section class="login-brand-panel">
+    <a class="brand login-brand" href="/login">
+      <span class="brand-mark"></span>
+      <span class="brand-text">oneNat<small>内网穿透 · 控制台</small></span>
+    </a>
+    <h1>把内网服务，<br>安全地接到公网。</h1>
+    <ul class="login-feats">
+      <li>{{template "icon" "zap"}}端口映射在线热更新，客户端无需重启</li>
+      <li>{{template "icon" "shield"}}默认仅转发 127.0.0.1，防内网跳板</li>
+      <li>{{template "icon" "terminal"}}一键脚本部署，systemd / launchd 常驻</li>
+      <li>{{template "icon" "key"}}AI Agent 只读 SKILL 接入，全程审计</li>
+    </ul>
+  </section>
+  <section class="login-form-panel">
+    <div class="login-card card">
+      <div class="login-title">登录控制台</div>
+      <p class="muted small">使用管理员或普通用户账号登录</p>
+      {{if .Error}}<div class="alert alert-err">{{.Error}}</div>{{end}}
+      <form method="post" action="/login">
+        <label class="field">用户名
+          <input name="username" autofocus required autocomplete="username" placeholder="username">
+        </label>
+        <label class="field">密码
+          <input name="password" type="password" required autocomplete="current-password" placeholder="••••••••">
+        </label>
+        <button class="btn btn-primary btn-block" type="submit">登 录</button>
+      </form>
+      <div class="login-foot muted small">oneNat v{{.Version}}</div>
+    </div>
+  </section>
+</div>
+<script src="/static/app.js?v={{staticV}}"></script>
 </body>
 </html>{{end}}

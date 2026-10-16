@@ -161,7 +161,7 @@ async function submitAppCredential(id) {
 }
 
 async function revealAppCredential(id) {
-  if (!confirm('查看明文凭证? 此操作会记录到审计日志。')) return;
+  if (!(await confirmBox({ title: '查看明文凭证', confirmText: '查看', message: '查看明文凭证? 此操作会记录到审计日志。' }))) return;
   try {
     const res = await api('POST', '/api/apps/' + id + '/reveal');
     const rows = [];
@@ -181,13 +181,13 @@ async function revealAppCredential(id) {
 }
 
 async function deleteApp(id, name) {
-  if (!confirm('确定删除应用 "' + name + '"? 其技能文件会被一并删除。')) return;
+  if (!(await confirmBox({ title: '删除应用', danger: true, confirmText: '删除应用', message: '确定删除应用 "' + name + '"? 其技能文件会被一并删除。' }))) return;
   try {
     await api('DELETE', '/api/apps/' + id);
     toast('应用已删除');
     location.href = '/apps';
   } catch (e) {
-    if (confirm(e.message + '\n\n强制解绑所有端口映射并删除?')) {
+    if (await confirmBox({ title: '强制删除应用', danger: true, confirmText: '强制删除', message: e.message + '\n\n强制解绑所有端口映射并删除?' })) {
       try { await api('DELETE', '/api/apps/' + id + '?force=1'); toast('应用已删除(映射已解绑)'); location.href = '/apps'; }
       catch (e2) { toast(e2.message, true); }
     }
@@ -284,7 +284,7 @@ async function submitEditSkill() {
 }
 
 async function deleteSkill(appId, sid, name) {
-  if (!confirm('确定删除技能文件 "' + name + '"?')) return;
+  if (!(await confirmBox({ title: '删除技能文件', danger: true, confirmText: '删除', message: '确定删除技能文件 "' + name + '"?' }))) return;
   try { await api('DELETE', `/api/apps/${appId}/skills/${sid}`); toast('已删除'); location.reload(); }
   catch (e) { toast(e.message, true); }
 }
@@ -444,8 +444,8 @@ function renderAppPrompt() {
 
 async function exportConfig() {
   try {
-    const withCred = confirm('导出文件将包含访问凭证明文 (用于跨环境导入)。\n\n'
-      + '确定 = 包含凭证 (推荐, 完整迁移)\n取消 = 仅导出不含凭证的结构配置');
+    const withCred = await confirmBox({ title: '导出配置', confirmText: '包含凭证', cancelText: '不含凭证',
+      message: '导出文件将包含访问凭证明文 (用于跨环境导入)。\n\n包含凭证 = 完整迁移 (推荐)\n不含凭证 = 仅导出结构配置' });
     const res = await fetch('/api/config/export?credentials=' + (withCred ? '1' : '0'), { credentials: 'same-origin' });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || ('HTTP ' + res.status));
     const blob = await res.blob();
@@ -488,7 +488,7 @@ async function submitImportConfig() {
   catch (e) { toast('文件不是有效的 JSON: ' + e.message, true); return; }
   if (config.format !== 'onenat-config') { toast('不是 oneNat 配置导出文件', true); return; }
   if (config.include_credentials &&
-      !confirm('该文件包含凭证明文, 导入后将按本机密钥重新加密保存。继续?')) return;
+      !(await confirmBox({ title: '导入含凭证的配置', confirmText: '继续导入', message: '该文件包含凭证明文, 导入后将按本机密钥重新加密保存。继续?' }))) return;
   try {
     const res = await api('POST', '/api/config/import', { config, mode });
     hideModal();
