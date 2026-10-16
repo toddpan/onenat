@@ -119,8 +119,12 @@ function confirmBox(opts) {
     document.getElementById('cf-ok').focus();
   });
   function settle(v) {
+    // 先摘除 resolver 再关弹窗: hideModal 会把仍在位的 confirmResolve
+    // 当作"取消"以 false 结算, 导致点"确认"也永远返回 false (删除无反应)。
+    const r = confirmResolve;
+    confirmResolve = null;
     hideModal();
-    if (confirmResolve) { confirmResolve(v); confirmResolve = null; }
+    if (r) r(v);
   }
 }
 
