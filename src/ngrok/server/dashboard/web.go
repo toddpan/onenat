@@ -406,7 +406,7 @@ func (d *Dashboard) pageTunnelDetail(w http.ResponseWriter, r *http.Request) {
 		T:          td,
 		BaseURL:    base,
 		InstallCmd: "curl -sSL " + base + "/install.sh | bash -s -- " + t.ID + " " + t.Key,
-		InstallCmdWin: `powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.ServicePointManager]::SecurityProtocol -bor 3072; [Net.ServicePointManager]::ServerCertificateValidationCallback={0 -eq 0}; & ([scriptblock]::Create((irm '` + base + `/install.ps1'))) -TunnelId '` + t.ID + `' -Key '` + t.Key + `'"`,
+		InstallCmdWin: `powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.ServicePointManager]::SecurityProtocol -bor 3072; if (-not ('OneNatTrustAll' -as [type])) { Add-Type -TypeDefinition 'using System.Net;using System.Security.Cryptography.X509Certificates;public static class OneNatTrustAll{public static void Apply(){ServicePointManager.ServerCertificateValidationCallback=delegate{return true;};}}' }; try { [OneNatTrustAll]::Apply() } catch {}; & ([scriptblock]::Create((irm '` + base + `/install.ps1'))) -TunnelId '` + t.ID + `' -Key '` + t.Key + `'"`,
 		OwnerName:  td.OwnerName,
 		ConnRows:   td.Runtime.Conns,
 		Weekly:     td.Runtime.WeeklyTraffic,
@@ -771,8 +771,16 @@ try {
 } catch {}
 
 
-# IP 直连/自签证书场景: 跳过证书链校验; 完整性由下载后的 MD5 校验保证
-[Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+# IP 直连/自签证书场景: 跳过证书链校验; 完整性由下载后的 MD5 校验保证。
+# 必须用编译委托而非脚本块: PS 5.1 的 irm/iwr 在线程池线程上触发该回调,
+# 脚本块会因 "没有可用于运行脚本的运行空间" 抛异常并中止 TLS 握手
+# (表现为 "基础连接已经关闭: 发送时发生错误"), 证书有效时同样中招。
+if (-not ('OneNatTrustAll' -as [type])) {
+  try {
+    Add-Type -TypeDefinition 'using System.Net;using System.Security.Cryptography.X509Certificates;public static class OneNatTrustAll{public static void Apply(){ServicePointManager.ServerCertificateValidationCallback=delegate{return true;};}}'
+  } catch {}
+}
+try { [OneNatTrustAll]::Apply() } catch {}
 switch ($env:PROCESSOR_ARCHITECTURE) {
   "ARM64" { $arch = "arm64" }
   default { $arch = "amd64" }
