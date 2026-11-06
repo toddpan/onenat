@@ -9,6 +9,7 @@ src/gopkg.in
 src/ngrok/client/assets/
 src/ngrok/server/assets/
 dl/
+dl-debug/
 dist/
 ngrokd-dashboard.json
 ngrokd.pid

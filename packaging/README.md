@@ -1,6 +1,11 @@
-# oneNat 服务端发行包 r2026.09.15
+# oneNat 服务端发行包
 
 公网隧道服务端 + Web 管理后台 + 客户端一键安装分发 + AI SKILL，开箱即用。
+
+> **版本号单一来源**：`{{RELEASE}}` 是占位符，打包时由 `packaging/repack.py`
+> 自动替换成 `r<版本>`（版本取自 `src/ngrok/server/dashboard/version.go` 的
+> `DefaultRelease` 常量）。文档里不再写死版本号，避免出现「包名是旧版本、后台显示
+> 新版本」这种自相矛盾的情况。改版本只需要改 `version.go` 一处。
 
 **功能一览**
 
@@ -23,7 +28,7 @@
 ## 包内容
 
 ```
-oneNat-r2026.09.15/
+oneNat-{{RELEASE}}/
 ├── start-onenat.sh      # 启动脚本 (Linux/macOS, 自动选择平台二进制, nohup 常驻)
 ├── start-onenat.bat     # 启动脚本 (Windows, 前台运行, Ctrl+C 停止)
 ├── stop-onenat.sh       # 停止脚本 (Linux/macOS; Windows 直接关窗口或 Ctrl+C)
@@ -34,14 +39,19 @@ oneNat-r2026.09.15/
 │   ├── ngrokd-darwin-arm64        # 服务端 (macOS Apple Silicon, 本地试用)
 │   └── ngrokd-windows-amd64.exe   # 服务端 (Windows x86_64)
 ├── dl/                            # 客户端二进制 (管理后台 /dl/ 一键安装分发用)
-│   ├── ngrok_linux_amd64 / ngrok_linux_arm64 / ngrok_linux_arm
-│   ├── ngrok_darwin_amd64 / ngrok_darwin_arm64
-│   └── ngrok_windows_amd64.exe / ngrok_windows_arm64.exe
+│   ├── onenat-client_linux_amd64 / onenat-client_linux_arm64 / onenat-client_linux_arm
+│   ├── onenat-client_darwin_amd64 / onenat-client_darwin_arm64
+│   └── onenat-client_windows_amd64.exe / onenat-client_windows_arm64.exe
 └── README.md                      # 本文档
 ```
 
-> 说明：服务端/客户端可执行文件沿用 ngrok 协议系命名（ngrokd / ngrok），
-> 产品与包名为 oneNat；两者通过启动脚本和文档衔接。
+> 说明：服务端可执行文件沿用 ngrok 协议系命名（`ngrokd`），产品与包名为 oneNat；
+> 两者通过启动脚本和文档衔接。
+>
+> **客户端二进制已改名为 `onenat-client_*`**（原 `ngrok_*`）。这不是 cosmetic：
+> 服务端 `/dl/` 端点的 MD5 清单只收 `onenat-client_` 前缀的文件，一键安装脚本
+> 也是按 `BIN_NAME="onenat-client_${os}_${arch}"` 去下载的——名字对不上，
+> 烘进安装脚本的校验表就会是空的，导致每次重装都重新下载一遍。
 
 ## 系统要求
 
@@ -54,8 +64,8 @@ oneNat-r2026.09.15/
 
 ```bash
 # 1. 解压
-tar xzf oneNat-r2026.09.15.tar.gz
-cd oneNat-r2026.09.15
+tar xzf oneNat-{{RELEASE}}.tar.gz
+cd oneNat-{{RELEASE}}
 
 # 2. 启动 (默认: 隧道口 4443 / 公网 http 80 / 管理后台 18080)
 bash start-onenat.sh
@@ -153,13 +163,66 @@ sudo systemctl enable --now onenat
 
 - **一键安装**（推荐）：管理后台隧道详情页复制一行命令执行，自动下载
   `dl/` 里对应平台的客户端、拉取配置并注册 systemd/launchd 常驻。
-- **手动运行**：`ngrok managed -config=ngrok-managed.yml`
+- **手动运行**：`onenat-client managed -config=onenat-client.yml`
   （配置文件由后台生成，内容仅含服务器地址与隧道 KEY）。
-- **旧式 agent 模式**（不依赖后台）：`ngrok agent -server=<域名>:4443`。
-- **Windows 客户端**：下载 `dl/ngrok_windows_amd64.exe`（x86_64）或
-  `dl/ngrok_windows_arm64.exe`（ARM 设备），放到固定目录后手动运行：
-  `ngrok_windows_amd64.exe -config=ngrok-managed.yml managed`
+- **旧式 agent 模式**（不依赖后台）：`onenat-client agent -server=<域名>:4443`。
+- **Windows 客户端**：下载 `dl/onenat-client_windows_amd64.exe`（x86_64）或
+  `dl/onenat-client_windows_arm64.exe`（ARM 设备），放到固定目录后手动运行：
+  `onenat-client_windows_amd64.exe -config=onenat-client.yml managed`
   （配置文件从管理后台 `/api/deploy?id=&key=` 获取，或直接复制详情页弹窗内容）。
+
+## 客户端 GitHub Release 资产清单与 sha256 校验
+
+客户端二进制除了随发行包分发（`dl/`），还发布在 GitHub Release 上
+（<https://github.com/toddpan/onenat/releases>）。**两种命名并存**，各有用途：
+
+| 形态 | 文件名 | 说明 |
+|---|---|---|
+| 裸二进制 | `onenat-client_<os>_<arch>`（Windows 带 `.exe`） | 与 `dl/` 同名。下载后 `chmod +x` 直接跑，**无需解包** —— 下游工具（如 dsh-onenat 插件）消费的就是这个形态 |
+| 归档 | `onenat-client-<os>-<arch>.tar.gz`（Windows 是 `.zip`） | 连字符命名，兼容历史 release 约定，便于人工下载。内部单文件 `onenat-client`（Windows 是 `onenat-client.exe`） |
+| 校验清单 | `checksums.txt` | sha256，格式 `<hex>  <文件名>`（**两个空格**分隔） |
+
+覆盖平台（7 个）：`linux/amd64`、`linux/arm64`、`linux/arm`、`darwin/arm64`、
+`darwin/amd64`、`windows/amd64`、`windows/arm64`。
+
+校验方法：
+
+```bash
+# 下载资产与 checksums.txt 到同一目录后
+sha256sum -c checksums.txt        # Linux
+shasum -a 256 -c checksums.txt    # macOS
+```
+
+> ⚠️ **对外分发的客户端必须用 `-tags release` 编译**。
+> `src/ngrok/client/debug.go`（`// +build !release`）会把
+> `useInsecureSkipVerify()` 置为 `true`，即**跳过服务端证书校验**（等于允许
+> 中间人）；只有 `src/ngrok/client/release.go`（`// +build release`）才只信任
+> 内嵌的 `ngrokroot.crt`。仓库的 `make release-clients` 已经强制用 release tag；
+> 本地调试请用 `make debug-clients`（产物写 `dl-debug/`，**不会**进 `dl/`）。
+
+## 发版流程（客户端 Release）
+
+```bash
+# 0. 依赖 (GOPATH 模式; Go 1.22+ 已移除 GOPATH 下的 'go get', 故用脚本拉取)
+bash packaging/fetch_gopath_deps.sh
+
+# 1. 交叉编译 7 个平台客户端 (-tags release) 到 dl/
+make release-clients
+
+# 2. 产出 Release 资产 (裸二进制 + 归档 + checksums.txt) 到 dist/release/<tag>/
+make release-assets TAG=r2026.11.06        # 不传 TAG 则取 version.go 里的 DefaultRelease
+
+# 3. 发布到 GitHub Release (需 gh auth login)
+bash packaging/publish_release.sh --tag r2026.11.06
+
+# 只想看会产出什么, 不落盘:
+python3 packaging/release_client.py --tag r2026.11.06 --dry-run
+# 脚本自检 (不需要 Go / 不需要 dl/):
+python3 packaging/release_client.py --selftest
+```
+
+CI 版：`.github/workflows/release-client.yml`（手动触发 + 推送 `r*` 标签自动触发），
+流程与上面一致，只是把 `gh release create` 换成用 `GITHUB_TOKEN` 跑同一个脚本。
 
 ## 升级与卸载
 
@@ -191,7 +254,8 @@ sudo systemctl enable --now onenat
 
 ## 版本信息
 
-- 发行标识：r2026.09.15
+- 发行标识：{{RELEASE}}（单一来源：`src/ngrok/server/dashboard/version.go` 的
+  `DefaultRelease`；打包时由 `packaging/repack.py` 替换占位符）
 - 协议版本：ngrok v1.x（Proto 2 / 1.7 系改造版，含 agent 网关与管理后台扩展）
 - 已知说明：流量统计与连接记录为内存态（服务重启清零）；管理后台数据为
   JSON 文件存储，适合中小规模（数十用户/数百隧道）。

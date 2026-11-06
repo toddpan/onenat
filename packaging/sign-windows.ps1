@@ -1,12 +1,12 @@
-﻿# oneNat Windows 二进制 Authenticode 签名工具
-# 用途: 分发前对 dl/ngrok_windows_*.exe (及服务端 bin/ngrokd-windows-*.exe) 代码签名,
+# oneNat Windows 二进制 Authenticode 签名工具
+# 用途: 分发前对 dl/onenat-client_windows_*.exe (及服务端 bin/ngrokd-windows-*.exe) 代码签名,
 #       显著降低 SmartScreen / Defender 误报率 (典型误报: Behavior:Win32/Persistence.A!ml,
 #       命中"下载落地 + Run 自启动 + 隐藏窗口"行为组合的未签名 exe)。
 #
 # 用法:
-#   正式证书(PFX):  pwsh packaging/sign-windows.ps1 -Pfx .\codesign.pfx -PfxPass '<密码>' -Targets dl\ngrok_windows_amd64.exe, dl\ngrok_windows_arm64.exe
-#   按指纹选证书:   pwsh packaging/sign-windows.ps1 -Thumbprint <证书指纹> -Targets dl\ngrok_windows_amd64.exe
-#   内网自签(免费): pwsh packaging/sign-windows.ps1 -SelfSigned -Targets dl\ngrok_windows_amd64.exe
+#   正式证书(PFX):  pwsh packaging/sign-windows.ps1 -Pfx .\codesign.pfx -PfxPass '<密码>' -Targets dl\onenat-client_windows_amd64.exe, dl\onenat-client_windows_arm64.exe
+#   按指纹选证书:   pwsh packaging/sign-windows.ps1 -Thumbprint <证书指纹> -Targets dl\onenat-client_windows_amd64.exe
+#   内网自签(免费): pwsh packaging/sign-windows.ps1 -SelfSigned -Targets dl\onenat-client_windows_amd64.exe
 #
 # 自签说明: 只消除"未知发布者"提示, 目标机需导入公钥才信任发布者:
 #   Export-Certificate -Cert Cert:\CurrentUser\My\<指纹> -FilePath onenat-codesign.cer
