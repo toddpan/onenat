@@ -1,0 +1,120 @@
+# oneNat 客户端 GitHub Release 自动发布
+#
+# 为什么要有这个 workflow:
+#   仓库原先**没有任何** Release 自动化, 资产全靠人工拖文件上传, 于是踩过这些坑 ——
+#   r2026.09.07 的 tarball 里装的其实还是改名前的 ngrok 二进制、校验清单漏文件、
+#   客户端用 debug tag 编译 (会跳过服务端证书校验)。这里把
+#   「编译(必须 -tags release) → 产出资产 → 校验 sha256 → 发 Release」整条链固化下来。
+#
+# 触发方式:
+#   - 手动: Actions → release-client → Run workflow, 填发行标签 (形如 r2026.11.06)
+#   - 自动: 推送 r* 标签 (例: git tag r2026.11.06 && git push origin r2026.11.06)
+name: release-client
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '发行标签 (形如 r2026.11.06)'
+        required: true
+        type: string
+      prerelease:
+        description: '标记为预发布'
+        required: false
+        default: false
+        type: boolean
+  push:
+    tags:
+      - 'r*'
+
+# 发 Release 需要写 contents 权限
+permissions:
+  contents: write
+
+# 同一个标签不并发跑两次发布
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: 构建并发布客户端 Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          # 需要完整历史: 发布时要按 commit 定位 tag
+          fetch-depth: 0
+
+      - name: 安装 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      # 本仓是 GOPATH 模式工程 (GOPATH=仓库根, GO111MODULE=off, 源码在 src/ 下)。
+      # Makefile 里已经 export 这两个变量, 这里再显式写一遍, 防止 runner 的环境变量打架。
+      - name: 准备 GOPATH 环境
+        env:
+          GO111MODULE: 'off'
+          GOPATH: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          echo "GOPATH=$GOPATH GO111MODULE=$GO111MODULE"
+          go version
+
+      - name: 解析发行标签
+        id: meta
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "push" ]; then
+            TAG="${{ github.ref_name }}"
+          else
+            TAG="${{ inputs.tag }}"
+          fi
+          if ! printf '%s' "$TAG" | grep -Eq '^r[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-[0-9A-Za-z.]+)?$'; then
+            echo "::error::发行标签格式应为 rYYYY.MM.DD (可选 -后缀), 实际: $TAG"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "发行标签: $TAG"
+
+      # Go 1.22 起 GOPATH 模式下的 'go get' 已被移除, 依赖改由脚本用 git 钉版本拉取
+      - name: 拉取 GOPATH 依赖
+        run: bash packaging/fetch_gopath_deps.sh
+
+      # 关键: release-clients 内部把 BUILDTAGS 覆盖成 release,
+      # 保证编译出的客户端**不会**跳过服务端证书校验 (debug tag 会跳过)
+      - name: 交叉编译 7 平台客户端 (-tags release)
+        run: make release-clients
+
+      - name: 产出 Release 资产 (裸二进制 + 归档 + checksums.txt)
+        run: python3 packaging/release_client.py --tag "${{ steps.meta.outputs.tag }}"
+
+      - name: 校验 sha256
+        working-directory: dist/release/${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          ls -l
+          sha256sum -c checksums.txt
+
+      - name: 发布 GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          set -euo pipefail
+          args=(--tag "$TAG" --repo "${{ github.repository }}" --yes)
+          if [ "${PRERELEASE:-false}" = "true" ]; then
+            args+=(--prerelease)
+          fi
+          bash packaging/publish_release.sh "${args[@]}"
+
+      - name: 上传产物 (便于排查)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: onenat-client-${{ steps.meta.outputs.tag }}
+          path: dist/release/${{ steps.meta.outputs.tag }}
+          if-no-files-found: warn
