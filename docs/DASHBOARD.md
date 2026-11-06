@@ -372,7 +372,23 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "& ([scriptblock]::Create
 systemd 分支用 `enable + restart` 而非 `enable --now`——`--now` 不会重启已运行的
 服务，旧进程会继续持有内存里的旧密钥，表现为
 `Failed to authenticate to server: Invalid authentication token` 且重装"成功"却不上线；
-launchd 分支 unload+load、nohup 分支 pkill 后重启，同理保证新配置生效。
+launchd 分支先 `bootout` 再 `bootstrap`、nohup 分支 pkill 后重启，同理保证新配置生效。
+
+**macOS launchd 两个坑（v2026.11 修复）**：
+
+1. launchd **拒绝加载 group/other 可写的 plist**，但只报
+   `Bootstrap failed: 5: Input/output error`（`launchctl load` 下是
+   `Load failed: 5: Input/output error`），极易误判为系统故障。脚本用 `cat >` 写
+   plist 会继承调用者 umask：**umask=000 的机器上落盘是 666，注册必失败**，
+   且重装时 `>` 截断不会改变已有文件的权限。故脚本开头 `umask 022`，写完后
+   再显式 `chmod 644 "$PLIST"` 兜底。
+2. **`launchctl load` 失败时仍然返回 0**（只往 stderr 打一行 `Load failed`），
+   靠 `set -e` 和退出码完全发现不了——表现为脚本打印"完成"但隧道永远不在线。
+   因此注册后必须用 `launchctl print "gui/$(id -u)/com.onenat.client"` 回查；
+   确认失败则打警告并回退到 nohup 后台进程，保证隧道至少能用。
+
+排查同类问题：`launchctl print gui/$(id -u)/com.onenat.client`、
+`log show --predicate 'process == "launchd"' --last 5m`。
 
 KEY 会出现在目标机 shell 历史里——文档注明可用环境变量
 `TUNNEL_ID/KEY curl ... | bash` 的替代形态。

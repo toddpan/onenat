@@ -177,6 +177,10 @@ echo "$INSTALL_SH" | grep -q "跳过下载" && ok "install.sh 含 MD5 幂等跳�
 echo "$INSTALL_SH" | grep -q "下载校验失败" && ok "install.sh 含下载后 MD5 校验" || bad "install.sh 缺下载校验"
 # 重装幂等: systemd 分支必须 restart (而非仅 enable --now), 否则已运行的旧进程不会加载新密钥
 echo "$INSTALL_SH" | grep -q "systemctl restart onenat-client" && ok "install.sh 已运行服务会 restart 生效" || bad "install.sh 缺 restart (重装不生效)"
+# macOS launchd: plist 若继承用户 umask=000 生成 666, launchd 拒绝加载且只报 "5: Input/output error",
+# 而 `launchctl load` 失败时仍返回 0 —— 所以必须显式 chmod 644 并用 launchctl print 回查结果
+echo "$INSTALL_SH" | grep -q 'chmod 644 "$PLIST"' && ok "install.sh 收紧 launchd plist 权限 (umask 000 场景)" || bad "install.sh 缺 plist chmod 644"
+echo "$INSTALL_SH" | grep -q 'launchctl print "gui/' && ok "install.sh 回查 launchd 注册结果" || bad "install.sh 缺 launchctl print 回查"
 sh -n <(echo "$INSTALL_SH") 2>/dev/null && ok "install.sh 语法合法 (sh -n)" || bad "install.sh 语法错误"
 C=$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' "$DASH/install.ps1")
 [ "$C" = "200" ] && ok "install.ps1 可获取(Windows)" || bad "install.ps1: $C"
