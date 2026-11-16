@@ -215,7 +215,7 @@ func (d *Dashboard) apiClientBootstrap(w http.ResponseWriter, r *http.Request) {
 	// read_api_key is likewise bootstrap-only and scoped to this installation.
 	server, _ := json.Marshal(d.opts.TunnelAddr)
 	key, _ := json.Marshal(t.Key)
-	out["config"] = fmt.Sprintf("server_addr: %s\ntrust_host_root_certs: %t\nauthtoken: %s\ngate: off\ninspect_addr: disabled\ntunnels: {}\n", server, d.opts.ClientTrustHostRootCerts, key)
+	out["config"] = fmt.Sprintf("server_addr: %s\ntrust_host_root_certs: %t\nauth_token: %s\ngate: off\ninspect_addr: disabled\ntunnels: {}\n", server, d.opts.ClientTrustHostRootCerts, key)
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, out)
 }

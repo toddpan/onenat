@@ -208,7 +208,7 @@ func startDashboard() error {
 		PortRangeMin:             opts.portRangeMin,
 		PortRangeMax:             opts.portRangeMax,
 		HTTPSAddr:                opts.httpsAddr,
-		ClientTrustHostRootCerts: opts.tlsCrt != "" && opts.tlsKey != "",
+		ClientTrustHostRootCerts: opts.clientTrustHostRootCerts,
 	})
 	if err != nil {
 		return err

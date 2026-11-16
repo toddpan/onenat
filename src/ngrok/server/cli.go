@@ -17,11 +17,14 @@ type Options struct {
 	tlsKey     string
 	// httpsCrt/httpsKey optionally serve the public HTTPS vhost listener with a
 	// different (publicly trusted) certificate than the client control channel.
-	httpsCrt  string
-	httpsKey  string
-	authToken string
-	logto     string
-	loglevel  string
+	httpsCrt string
+	httpsKey string
+	// clientTrustHostRootCerts uses the system PKI for managed clients' control
+	// channel. Only valid with a publicly trusted tlsCrt; default uses bundled CA.
+	clientTrustHostRootCerts bool
+	authToken                string
+	logto                    string
+	loglevel                 string
 
 	// web management console
 	webAddr      string
@@ -48,6 +51,7 @@ func parseArgs() *Options {
 	tlsKey := flag.String("tlsKey", "", "Path to a TLS key file")
 	httpsCrt := flag.String("httpsCrt", "", "Optional TLS certificate for the public HTTPS vhost listener (defaults to tlsCrt); lets nodes use a publicly trusted cert without changing the client control-channel cert")
 	httpsKey := flag.String("httpsKey", "", "Optional TLS key for the public HTTPS vhost listener (defaults to tlsKey)")
+	clientTrustHostRootCerts := flag.Bool("clientTrustHostRootCerts", false, "Managed clients verify the control channel with the system PKI (requires a publicly trusted -tlsCrt; default uses the bundled CA)")
 	authToken := flag.String("authToken", "", "Require clients to present this token in their Auth message; comma-separated list allowed (one per zero-config agent machine); empty disables authentication")
 	logto := flag.String("log", "stdout", "Write log messages to this file. 'stdout' and 'none' have special meanings")
 	loglevel := flag.String("log-level", "DEBUG", "The level of messages to log. One of: DEBUG, INFO, WARNING, ERROR")
@@ -68,17 +72,18 @@ func parseArgs() *Options {
 	}
 
 	return &Options{
-		httpAddr:   *httpAddr,
-		httpsAddr:  *httpsAddr,
-		tunnelAddr: *tunnelAddr,
-		domain:     *domain,
-		tlsCrt:     *tlsCrt,
-		tlsKey:     *tlsKey,
-		httpsCrt:   *httpsCrt,
-		httpsKey:   *httpsKey,
-		authToken:  *authToken,
-		logto:      *logto,
-		loglevel:   *loglevel,
+		httpAddr:                 *httpAddr,
+		httpsAddr:                *httpsAddr,
+		tunnelAddr:               *tunnelAddr,
+		domain:                   *domain,
+		tlsCrt:                   *tlsCrt,
+		tlsKey:                   *tlsKey,
+		httpsCrt:                 *httpsCrt,
+		httpsKey:                 *httpsKey,
+		clientTrustHostRootCerts: *clientTrustHostRootCerts,
+		authToken:                *authToken,
+		logto:                    *logto,
+		loglevel:                 *loglevel,
 
 		webAddr:      *webAddr,
 		webData:      *webData,
