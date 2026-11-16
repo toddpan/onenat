@@ -15,9 +15,13 @@ type Options struct {
 	domain     string
 	tlsCrt     string
 	tlsKey     string
-	authToken  string
-	logto      string
-	loglevel   string
+	// httpsCrt/httpsKey optionally serve the public HTTPS vhost listener with a
+	// different (publicly trusted) certificate than the client control channel.
+	httpsCrt  string
+	httpsKey  string
+	authToken string
+	logto     string
+	loglevel  string
 
 	// web management console
 	webAddr      string
@@ -42,6 +46,8 @@ func parseArgs() *Options {
 	domain := flag.String("domain", "ngrok.com", "Domain where the tunnels are hosted")
 	tlsCrt := flag.String("tlsCrt", "", "Path to a TLS certificate file")
 	tlsKey := flag.String("tlsKey", "", "Path to a TLS key file")
+	httpsCrt := flag.String("httpsCrt", "", "Optional TLS certificate for the public HTTPS vhost listener (defaults to tlsCrt); lets nodes use a publicly trusted cert without changing the client control-channel cert")
+	httpsKey := flag.String("httpsKey", "", "Optional TLS key for the public HTTPS vhost listener (defaults to tlsKey)")
 	authToken := flag.String("authToken", "", "Require clients to present this token in their Auth message; comma-separated list allowed (one per zero-config agent machine); empty disables authentication")
 	logto := flag.String("log", "stdout", "Write log messages to this file. 'stdout' and 'none' have special meanings")
 	loglevel := flag.String("log-level", "DEBUG", "The level of messages to log. One of: DEBUG, INFO, WARNING, ERROR")
@@ -68,6 +74,8 @@ func parseArgs() *Options {
 		domain:     *domain,
 		tlsCrt:     *tlsCrt,
 		tlsKey:     *tlsKey,
+		httpsCrt:   *httpsCrt,
+		httpsKey:   *httpsKey,
 		authToken:  *authToken,
 		logto:      *logto,
 		loglevel:   *loglevel,

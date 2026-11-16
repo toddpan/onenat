@@ -10,10 +10,11 @@ import (
 // 版本维护 (单一来源): 每次发版只需改 DefaultRelease 常量, 其余
 // (发行包名 / 文档 / systemd) 均以 r<DefaultRelease> 派生。
 // 编译期可用 -ldflags 覆盖, 用于在不改源码的情况下打测试/灰度版本:
-//   -X ngrok/server/dashboard.ReleaseOverride=2026.09.15-beta1
+//
+//	-X ngrok/server/dashboard.ReleaseOverride=2026.09.15-beta1
 var (
 	// DefaultRelease 当前发行标识 (r 后缀在 Version() 中补)。发版改这一处。
-	DefaultRelease = "2026.10.16"
+	DefaultRelease = "2026.11.16"
 
 	// ReleaseOverride 编译期覆盖值 (留空=用 DefaultRelease)。
 	ReleaseOverride = ""

@@ -20,15 +20,17 @@ import (
 )
 
 type Options struct {
-	Domain       string // domain used when signing tunnels / generating client config
-	TunnelAddr   string // client control address "host:port" baked into client config
-	DataPath     string // JSON persistence path
-	DlDir        string // directory serving prebuilt client binaries
-	AdminPass    string // optional initial admin password (random when empty)
-	SecureCookie bool   // mark session cookies Secure (recommended when behind HTTPS)
-	SkillsDir    string // directory holding skill-file content (default <webData dir>/skills)
-	PortRangeMin int    // allowed public TCP port range lower bound; 0 = unrestricted
-	PortRangeMax int    // allowed public TCP port range upper bound; 0 = unrestricted
+	Domain                   string // domain used when signing tunnels / generating client config
+	TunnelAddr               string // client control address "host:port" baked into client config
+	DataPath                 string // JSON persistence path
+	DlDir                    string // directory serving prebuilt client binaries
+	AdminPass                string // optional initial admin password (random when empty)
+	SecureCookie             bool   // mark session cookies Secure (recommended when behind HTTPS)
+	SkillsDir                string // directory holding skill-file content (default <webData dir>/skills)
+	PortRangeMin             int    // allowed public TCP port range lower bound; 0 = unrestricted
+	PortRangeMax             int    // allowed public TCP port range upper bound; 0 = unrestricted
+	HTTPSAddr                string // shared public HTTPS listener, empty = unavailable
+	ClientTrustHostRootCerts bool   // explicit control TLS cert uses system PKI instead of bundled CA
 }
 
 type Dashboard struct {
@@ -127,8 +129,8 @@ type builtinAppDef struct {
 	// SkillName is the skill file the app is born with. When SkillAsset is
 	// non-empty the content comes from assets/builtin/<SkillAsset> (platform
 	// shipped); otherwise the type skeleton scaffold generates it.
-	SkillName string
-	SkillExt  string
+	SkillName  string
+	SkillExt   string
 	SkillAsset string
 }
 
@@ -382,6 +384,19 @@ func (d *Dashboard) route(w http.ResponseWriter, r *http.Request) {
 		d.requireAdmin(http.HandlerFunc(d.apiExportConfig)).ServeHTTP(w, r)
 	case p == "/api/config/import" && m == http.MethodPost:
 		d.requireAdmin(d.apiHandler(d.apiImportConfig)).ServeHTTP(w, r)
+
+	// Plugin clients authenticate through ordinary dashboard sessions. The
+	// read-only onk API key surface above deliberately remains read-only.
+	case p == "/api/client/bootstrap":
+		if methodMismatch(w, r, http.MethodPost) {
+			return
+		}
+		d.requireUser(http.HandlerFunc(d.apiClientBootstrap)).ServeHTTP(w, r)
+	case p == "/api/client/status":
+		if methodMismatch(w, r, http.MethodGet) {
+			return
+		}
+		d.requireUser(http.HandlerFunc(d.apiClientStatus)).ServeHTTP(w, r)
 
 	// ---------- tunnels api ----------
 	case p == "/api/me" && m == http.MethodGet:

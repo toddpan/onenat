@@ -118,6 +118,14 @@ func registerVhost(t *Tunnel, protocol string, servingPort int) (err error) {
 // Create a new tunnel from a registration message received
 // on a control channel
 func NewTunnel(m *msg.ReqTunnel, ctl *Control) (t *Tunnel, err error) {
+	if ctl.dashTunnelID != "" {
+		if dash == nil || ctl.auth == nil {
+			return nil, fmt.Errorf("Managed tunnel authentication unavailable")
+		}
+		if err := dash.Store().AuthorizeManagedRequest(ctl.dashTunnelID, ctl.auth.User, m); err != nil {
+			return nil, err
+		}
+	}
 	t = &Tunnel{
 		req:           m,
 		dashMappingID: m.Name,
@@ -131,7 +139,10 @@ func NewTunnel(m *msg.ReqTunnel, ctl *Control) (t *Tunnel, err error) {
 	case "tcp":
 		bindTcp := func(port int) error {
 			if t.listener, err = net.ListenTCP("tcp", &net.TCPAddr{IP: net.ParseIP("0.0.0.0"), Port: port}); err != nil {
-				err = t.ctl.conn.Error("Error binding TCP listener: %v", err)
+				// Logging can return nil when no log sinks are installed. Preserve
+				// the actual bind error independently so fixed ports never succeed.
+				err = fmt.Errorf("Error binding TCP listener: %v", err)
+				t.ctl.conn.Error("%v", err)
 				return err
 			}
 
@@ -154,8 +165,8 @@ func NewTunnel(m *msg.ReqTunnel, ctl *Control) (t *Tunnel, err error) {
 
 		// bindTcpAuto binds a public listener honoring the configured
 		// port range: candidates are drawn at random from inside the
-		// range first; when the range is unrestricted (or every
-		// candidate is taken) it falls back to an OS-assigned port.
+		// range first. A configured range never falls back outside it;
+		// only an unrestricted server may ask the OS for a port.
 		bindTcpAuto := func() error {
 			if portRangeConfigured() {
 				for i := 0; i < portRangeAutoAttempts; i++ {
@@ -163,7 +174,7 @@ func NewTunnel(m *msg.ReqTunnel, ctl *Control) (t *Tunnel, err error) {
 						return nil
 					}
 				}
-				t.ctl.conn.Warn("No free port in range %s after %d attempts, falling back to an OS-assigned port", portRangeDesc(), portRangeAutoAttempts)
+				return fmt.Errorf("No free public port in allowed range %s after %d attempts", portRangeDesc(), portRangeAutoAttempts)
 			}
 			return bindTcp(0)
 		}
@@ -178,13 +189,8 @@ func NewTunnel(m *msg.ReqTunnel, ctl *Control) (t *Tunnel, err error) {
 				err = fmt.Errorf("Public port %d is outside the allowed mapping range %s", t.req.RemotePort, portRangeDesc())
 				return nil, err
 			}
-			if bindTcp(int(t.req.RemotePort)) != nil {
-				// e.g. server restarted while the client auto-reconnected
-				// and the old socket was not released yet. Fall back to a
-				// random port so the mapping still serves; the dashboard
-				// shows the real endpoint from the tunnel registry.
-				t.ctl.conn.Warn("Custom port %d unavailable, falling back to a random port", t.req.RemotePort)
-				bindTcpAuto()
+			if bindErr := bindTcp(int(t.req.RemotePort)); bindErr != nil {
+				return nil, fmt.Errorf("Requested fixed public port %d is unavailable: %v", t.req.RemotePort, bindErr)
 			}
 			return
 		}
@@ -213,8 +219,11 @@ func NewTunnel(m *msg.ReqTunnel, ctl *Control) (t *Tunnel, err error) {
 			}
 		}
 
-		// Bind for TCP connections
-		bindTcpAuto()
+		// Bind for TCP connections; propagate exhaustion instead of returning
+		// a tunnel without a listener (or an out-of-range endpoint).
+		if err = bindTcpAuto(); err != nil {
+			return nil, err
+		}
 		return
 
 	case "http", "https":

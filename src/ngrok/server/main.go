@@ -172,9 +172,17 @@ func Main() {
 		listeners["http"] = startHttpListener(opts.httpAddr, nil)
 	}
 
-	// listen for https
+	// listen for https. A dedicated httpsCrt/httpsKey lets the public vhost use a
+	// publicly trusted certificate while the client control channel keeps tlsCrt.
 	if opts.httpsAddr != "" {
-		listeners["https"] = startHttpListener(opts.httpsAddr, tlsConfig)
+		httpsTlsConfig := tlsConfig
+		if opts.httpsCrt != "" && opts.httpsKey != "" {
+			httpsTlsConfig, err = LoadTLSConfig(opts.httpsCrt, opts.httpsKey)
+			if err != nil {
+				panic(err)
+			}
+		}
+		listeners["https"] = startHttpListener(opts.httpsAddr, httpsTlsConfig)
 	}
 
 	// ngrok clients
@@ -190,15 +198,17 @@ func startDashboard() error {
 
 	isHttps := opts.webTlsCrt != "" && opts.webTlsKey != ""
 	d, err := dashboard.New(dashboard.Options{
-		Domain:       opts.domain,
-		TunnelAddr:   tunnelClientAddr,
-		DataPath:     opts.webData,
-		DlDir:        opts.dlDir,
-		AdminPass:    opts.webAdminPass,
-		SecureCookie: isHttps,
-		SkillsDir:    opts.skillsDir,
-		PortRangeMin: opts.portRangeMin,
-		PortRangeMax: opts.portRangeMax,
+		Domain:                   opts.domain,
+		TunnelAddr:               tunnelClientAddr,
+		DataPath:                 opts.webData,
+		DlDir:                    opts.dlDir,
+		AdminPass:                opts.webAdminPass,
+		SecureCookie:             isHttps,
+		SkillsDir:                opts.skillsDir,
+		PortRangeMin:             opts.portRangeMin,
+		PortRangeMax:             opts.portRangeMax,
+		HTTPSAddr:                opts.httpsAddr,
+		ClientTrustHostRootCerts: opts.tlsCrt != "" && opts.tlsKey != "",
 	})
 	if err != nil {
 		return err

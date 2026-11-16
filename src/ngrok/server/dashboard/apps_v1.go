@@ -39,6 +39,7 @@ type ResourceApp struct {
 	AuthType    string          `json:"auth_type"`
 	Username    string          `json:"username,omitempty"`
 	InternalURL string          `json:"internal_url,omitempty"`
+	Tags        []string        `json:"tags,omitempty"`
 	Skills      []ResourceSkill `json:"skills"`
 }
 
@@ -64,7 +65,7 @@ func (d *Dashboard) resourceAppFor(base, appID, key string) *ResourceApp {
 	ra := &ResourceApp{
 		ID: a.ID, Name: a.Name, Type: a.Type, Description: a.Description,
 		AuthType: a.Auth.AuthType, Username: a.Auth.Username, InternalURL: a.InternalURL,
-		Skills: []ResourceSkill{},
+		Tags: a.Tags, Skills: []ResourceSkill{},
 	}
 	for _, sk := range d.store.SkillFiles(a.ID) {
 		ra.Skills = append(ra.Skills, ResourceSkill{

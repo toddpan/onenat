@@ -77,6 +77,10 @@ type Tunnel struct {
 	Node               string     `json:"node"`                           // 预留多节点; 当前=服务器域名
 	CreatedAt          time.Time  `json:"created_at"`
 	Mappings           []*Mapping `json:"mappings"`
+	// ClientID/ClientMappingID bind the private plugin installer to exactly one
+	// owner-scoped tunnel and mapping, independent of display names.
+	ClientID        string `json:"client_id,omitempty"`
+	ClientMappingID string `json:"client_mapping_id,omitempty"`
 }
 
 // ApiKey 授予持有者对其归属用户隧道资源的只读访问权 (资源列表 + SKILL
@@ -99,9 +103,9 @@ type ApiKey struct {
 // App 应用实体: 一个内网系统在平台侧的登记 (KB API / SSH / 内部 Web ...)。
 // 端口映射通过 Mapping.AppID 挂到应用下; AI 经由应用获得入口 + 技能 + 认证方式。
 type App struct {
-	ID          string    `json:"id"`      // "app-" + 随机串, 防枚举
-	Name        string    `json:"name"`    // "KB API"
-	Type        string    `json:"type"`    // ssh | http-api | web | database | custom
+	ID          string    `json:"id"`          // "app-" + 随机串, 防枚举
+	Name        string    `json:"name"`        // "KB API"
+	Type        string    `json:"type"`        // ssh | http-api | web | database | custom
 	Description string    `json:"description"` // 一句话描述, 会展示给 AI
 	OwnerID     string    `json:"owner_id"`
 	InternalURL string    `json:"internal_url,omitempty"` // 内网原始地址, 纯描述性
@@ -116,8 +120,8 @@ type App struct {
 type AppAuth struct {
 	AuthType     string            `json:"auth_type"` // none | basic | bearer | header | custom
 	Username     string            `json:"username,omitempty"`
-	PasswordEnc  string            `json:"password_enc,omitempty"` // "enc:v1:..." 加密
-	ApiKeyEnc    string            `json:"api_key_enc,omitempty"`  // 应用自身的 API KEY, 加密
+	PasswordEnc  string            `json:"password_enc,omitempty"`  // "enc:v1:..." 加密
+	ApiKeyEnc    string            `json:"api_key_enc,omitempty"`   // 应用自身的 API KEY, 加密
 	ExtraHeaders map[string]string `json:"extra_headers,omitempty"` // 自定义认证头, 值逐条加密
 }
 
@@ -141,11 +145,11 @@ type settings struct {
 }
 
 type storeFile struct {
-	Settings settings   `json:"settings"`
-	Users    []*User    `json:"users"`
-	Tunnels  []*Tunnel  `json:"tunnels"`
-	ApiKeys  []*ApiKey  `json:"api_keys,omitempty"`
-	Apps     []*App     `json:"apps,omitempty"`
+	Settings settings     `json:"settings"`
+	Users    []*User      `json:"users"`
+	Tunnels  []*Tunnel    `json:"tunnels"`
+	ApiKeys  []*ApiKey    `json:"api_keys,omitempty"`
+	Apps     []*App       `json:"apps,omitempty"`
 	Skills   []*SkillFile `json:"skills,omitempty"`
 }
 
@@ -806,6 +810,40 @@ func (s *Store) ApiKeyByID(id string) *ApiKey {
 		}
 	}
 	return nil
+}
+
+// ensureReadApiKeyLocked returns the installation's stable read-only key.
+// Caller holds s.mu. It never changes an existing key value, so persisted
+// WorkBuddy read credentials remain valid across reprovisioning.
+func (s *Store) ensureReadApiKeyLocked(ownerUserID, name string) *ApiKey {
+	for _, k := range s.data.ApiKeys {
+		if k.OwnerID == ownerUserID && k.Name == name {
+			k.CanReadCred = true
+			return k
+		}
+	}
+	k := &ApiKey{
+		ID:          NewMappingID() + NewMappingID(),
+		Name:        name,
+		Key:         NewApiKeySecret(),
+		OwnerID:     ownerUserID,
+		CreatedAt:   time.Now(),
+		CanReadCred: true,
+	}
+	s.data.ApiKeys = append(s.data.ApiKeys, k)
+	return k
+}
+
+// EnsureClientReadKey creates/returns the single-installation read key. It is
+// exposed only through bootstrap; the generic key list stays metadata-only.
+func (s *Store) EnsureClientReadKey(ownerUserID, clientID string) (*ApiKey, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	k := s.ensureReadApiKeyLocked(ownerUserID, "workbuddy-client:"+clientID)
+	if err := s.saveLocked(); err != nil {
+		return nil, err
+	}
+	return k, nil
 }
 
 func (s *Store) CreateApiKey(ownerUserID, name string) *ApiKey {
